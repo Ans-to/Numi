@@ -1,5 +1,7 @@
 # Security design and limits
 
+**Post-release review (2026-10-23):** see the [executed attack simulations and findings](docs/SECURITY_REVIEW_2026-10-23.md). The review confirmed the in-process PIN-gate limitation and fixed a corruption/retry cache defect on the review branch. That fix is **not yet in the published 1.0.2 APK**. This is not an independent security certification.
+
 ## Threat model
 
 Intended protection: someone casually using the calculator, another unprivileged Android app, a copied encrypted file, accidental task previews/screenshots, malformed media, and incomplete imports. Android app sandboxing and Android Keystore are part of the trusted computing base. The app does not claim protection against a rooted device, OS compromise, hooking/debugging, malicious accessibility services/keyboards, forensic access to live process memory, or an attacker with the device already unlocked into the vault.

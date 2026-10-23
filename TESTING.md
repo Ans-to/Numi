@@ -1,5 +1,7 @@
 # Verification record — 1.0.2
 
+**Subsequent security review:** [2026-10-23 report](docs/SECURITY_REVIEW_2026-10-23.md) records 39 core checks, 16 adversarial scenario groups, independent OpenSSL interoperability, and 20 passing API 35 tests on the review branch. It includes a cache-recovery fix that is **not yet published**. The original 1.0.2 release verification below remains a separate record.
+
 Date: **2026-10-23**. Application/test revision: **`5a3968f4cbc81f3a31f4173c1ec7399aaa6ab392`**.
 
 **PASS:** [Full Android verification run](https://github.com/Ans-to/Numi/actions/runs/39925199885).

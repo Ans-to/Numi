@@ -2,7 +2,7 @@
 
 A native, offline Android calculator with PIN-gated, encrypted private storage. Kotlin, Jetpack Compose / Material 3, MVVM, minimum Android 8.0 (API 26). Launcher name: **Calculator**.
 
-> **Verification status:** the pure Kotlin suite has passed 37 checks in the development sandbox. Android compilation, lint, APK generation and emulator tests are being attempted through the included GitHub Actions workflow because this sandbox cannot reach Google's SDK/Maven or Gradle distribution servers. See [TESTING.md](TESTING.md) for the exact final results. Do not treat source implementation alone as proof of production readiness.
+> **Verification status:** the pure Kotlin suite has passed 39 checks in the development sandbox. Android compilation, lint, APK generation and emulator tests are being attempted through the included GitHub Actions workflow because this sandbox cannot reach Google's SDK/Maven or Gradle distribution servers. See [TESTING.md](TESTING.md) for the exact final results. Do not treat source implementation alone as proof of production readiness.
 
 ## Open and build
 

@@ -98,7 +98,7 @@ class VaultRepository(private val context: Context, private val secrets: SecretS
         save(catalog.copy(items = catalog.items.filterNot { it.id in ids }))
         readers.filter { it.item.id in ids }.toList().forEach { it.close() }
         val failures = deleting.count { val file = File(root, "${it.id}.cv"); file.exists() && !file.delete() }
-        check(failures == 0) { "Items removed, but $failures encrypted files could not be reclaimed." }
+        failures
     }
     fun reader(item: VaultItem): SecureReader = synchronized(guard) {
         check(unlocked && catalog.items.any { it.id == item.id }) { "Vault is locked" }

@@ -47,7 +47,7 @@ import kotlinx.coroutines.withContext
 
 @Composable fun MediaViewer(item: VaultItem, photos: List<VaultItem>, repository: VaultRepository, close: () -> Unit) {
     var fullscreen by remember(item.id) { mutableStateOf(false) }
-    val activity = LocalContext.current as? android.app.Activity
+    val activity = androidx.activity.compose.LocalActivity.current
     DisposableEffect(fullscreen) {
         val controller = activity?.let { androidx.core.view.WindowCompat.getInsetsController(it.window, it.window.decorView) }
         if (fullscreen) {

@@ -75,6 +75,25 @@ object CoreChecks {
                     }
                 }
             }
+            checkCase("256 MiB generated import stays streaming and verifies without a full-file buffer") {
+                val stream = object : InputStream() {
+                    var remaining = 256L * 1024 * 1024
+                    override fun read(): Int = if (remaining == 0L) -1 else { remaining--; 90 }
+                    override fun read(bytes: ByteArray, offset: Int, length: Int): Int {
+                        if (length == 0) return 0
+                        if (remaining == 0L) return -1
+                        val n = minOf(remaining, length.toLong()).toInt()
+                        bytes.fill(90, offset, offset + n); remaining -= n; return n
+                    }
+                }
+                val large = ImportTransaction.prepare(dir, stream)
+                equal(256L * 1024 * 1024, large.size)
+                ChunkCipher.Reader(large.file, large.key, large.id, large.size).use { it.verify(large.digest) }
+                check(large.file.delete())
+            }
+            checkCase("verification obeys cancellation without publishing data") {
+                ChunkCipher.Reader(prepared.file, prepared.key, prepared.id, prepared.size).use { r -> fails { r.verify(prepared.digest) { true } } }
+            }
             checkCase("exact chunk boundary requires final authenticated record") { val p = ImportTransaction.prepare(dir, ByteArrayInputStream(ByteArray(ChunkCipher.CHUNK))); ChunkCipher.Reader(p.file, p.key, p.id, p.size).use { it.verify(p.digest) } }
             checkCase("interrupted provider leaves no partial or valid item") {
                 val before = dir.list()!!.toSet()

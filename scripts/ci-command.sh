@@ -11,7 +11,7 @@ text = open(sys.argv[1]).read()
 # Kotlin/compiler diagnostics often precede the stack trace.
 lines = text.splitlines()
 errors = [line for line in lines if any(x in line for x in ['e: ', 'error:', 'Error:', 'What went wrong', 'Could not', 'failed', 'Exception', 'FAILURE'])]
-summary = '\n'.join(errors)[:20000] or text[-12000:]
+summary = '\n'.join(dict.fromkeys(errors))[:20000] or text[-12000:]
 print('::error::' + summary.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
 PY
 fi

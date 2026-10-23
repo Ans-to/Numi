@@ -6,13 +6,13 @@ Development date: 2026-10-23. See the final summary below before relying on the 
 
 `JAVA_HOME=/home/user/tools/python/jdk4py/java-runtime KOTLIN_HOME=/home/user/tools/kotlin/node_modules/kotlin-compiler ./scripts/test-core.sh`
 
-**37 checks passed**, using real Kotlin 2.2.21/JVM cryptography, not Python reimplementations or UI mocks. Checks cover:
+**39 checks passed**, using real Kotlin 2.2.21/JVM cryptography, not Python reimplementations or UI mocks. Checks cover:
 
 - Four arithmetic operations, decimal accuracy, precedence, parentheses, unary negatives, percentages, Unicode keypad operators, leading zeros, repeating fractions.
 - Division by zero, malformed/oversized/over-nested input rejected safely.
 - Correct/incorrect PINs, leading-zero PINs, invalid PIN formats, randomized salts, rejection of arithmetic as PIN candidates, progressive persisted-attempt deadlines and clock rollback.
 - Immediate background locking, grace periods, expiration, process-start locked state, monotonic rollback.
-- Ciphertext not containing source plaintext; exact import/decrypt equality; empty and exact-chunk-boundary imports; >12 MiB multi-chunk input and random seeks.
+- Ciphertext not containing source plaintext; exact import/decrypt equality; empty and exact-chunk-boundary imports; >12 MiB multi-chunk input, random seeks, and a 256 MiB streaming import under a 128 MiB JVM heap.
 - Wrong keys/identities, modified ciphertext/header, missing end marker, trailing data and truncation rejected.
 - Interrupted/cancelled imports leave no partial valid item or plaintext staging; reopened reader verifies original content; closed readers reject access; invalid names rejected.
 

@@ -184,7 +184,11 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     fun rename(id: String, name: String) = operation { vault.rename(id, name); "Renamed." }
     fun folder(name: String) = operation { vault.createFolder(name); "Folder created." }
     fun move(ids: Set<String>, folder: String?) = operation { vault.move(ids, folder); "Items moved." }
-    fun delete(ids: Set<String>) = operation { vault.delete(ids); "Permanently deleted from this vault. Originals are unchanged." }
+    fun delete(ids: Set<String>) = operation {
+        val remaining = vault.delete(ids)
+        if (remaining == 0) "Permanently deleted from this vault. Originals are unchanged."
+        else "Item keys were removed, but $remaining encrypted files could not be reclaimed. These vault copies are no longer accessible. Originals are unchanged."
+    }
     fun preferences(p: Preferences) = operation { auth.settings(p); "Settings saved." }
     fun biometricSaved(iv: ByteArray?, cipher: ByteArray?) = operation { auth.setBiometric(iv, cipher); if (cipher == null) "Biometrics disabled." else "Biometrics enabled. Your PIN remains available." }
     private fun operation(block: () -> String) {
@@ -196,7 +200,11 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                 val result = withContext(Dispatchers.IO) { block() }
                 if (ticket == epoch && state.value.unlocked) mutable.update { it.copy(catalog = vault.snapshot(), preferences = auth.preferences, message = result) }
             } catch (_: Exception) {
-                if (ticket == epoch) message("Operation could not finish. Check the name, available storage, and file access. Encrypted data was not reset; try unlocking again if needed.")
+                if (ticket == epoch && state.value.unlocked) {
+                    // A catalog commit can succeed before later cleanup fails. Never show stale valid items.
+                    mutable.update { it.copy(catalog = vault.snapshot(), preferences = auth.preferences) }
+                    message("Operation could not finish. Check the name, available storage, and file access. The list reflects committed changes; try unlocking again if needed.")
+                }
             } finally { mutable.update { it.copy(busy = false) } }
         }
     }

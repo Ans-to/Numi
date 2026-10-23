@@ -22,10 +22,16 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
       - name: Install Android platform
         run: ./scripts/ci-command.sh ./scripts/install-android-ci.sh
-      - name: Unit tests, lint, debug and unsigned release APK
-        run: ./scripts/ci-command.sh ./gradlew :core:test :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest --stacktrace
+      - name: Unit tests
+        run: ./scripts/ci-command.sh ./gradlew :core:test :app:testDebugUnitTest --stacktrace
+      - name: Debug and release lint
+        run: ./scripts/ci-command.sh ./gradlew :app:lintDebug :app:lintRelease --stacktrace
+      - name: Debug, unsigned release, and instrumentation APKs
+        run: ./scripts/ci-command.sh ./gradlew :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest --stacktrace
       - name: Publish APK transport for restricted owner workspace
         if: success() && github.event_name != 'pull_request' && github.ref == 'refs/heads/arena/d236bb71-numi'
         env:
@@ -55,6 +61,8 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
       - name: Install Android platform
         run: ./scripts/ci-command.sh ./scripts/install-android-ci.sh
       - name: Enable KVM

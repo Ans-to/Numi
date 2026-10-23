@@ -26,6 +26,8 @@ The owner authorized pushing only `arena/d236bb71-numi` and running GitHub Actio
 
 Initial remote attempts exposed a missing SDK manager in the runner and a Kotlin input-handler syntax error. The SDK provisioning and source were corrected, rather than treating those attempts as passed. Final status and APK hashes are recorded after verification; until then, remote success is not claimed.
 
+**Safety:** instrumentation resets app-private test storage. Run it only on a disposable emulator/test installation, never an installation holding real vault files.
+
 Instrumentation source includes:
 
 - Real Android Keystore-backed PIN record, correct/wrong/expression attempts.

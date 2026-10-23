@@ -270,7 +270,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         removalCandidates.forEach { releaseReadGrant(it.uri) }
         removalCandidates = emptyList()
         mutable.update { it.copy(removalNames = emptyList()) }
-        message("Originals kept. The encrypted vault copies remain available.")
+        message("Waiting originals kept. No removal was requested for this selection.")
     }
     fun removeOriginalsConfirmed() {
         val s = state.value
@@ -295,7 +295,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 val removed = outcomes.count { it.second == SourceRemovalResult.REMOVED }
-                importReport = "$removed originals removed by the provider; ${selected.size - removed} not confirmed removed. Vault copies retained. Gallery refresh, trash and cloud copies are controlled by their providers." +
+                importReport = "$removed ${if (removed == 1) "original" else "originals"} removed by the provider; ${selected.size - removed} not confirmed removed. Vault copies retained. Gallery refresh, trash and cloud copies are controlled by their providers." +
                     outcomes.filter { it.second != SourceRemovalResult.REMOVED }.take(3).joinToString("", prefix = "\n\n") { "${it.first.name}: ${it.second.help}\n" }
                 if (state.value.unlocked) mutable.update { it.copy(message = importReport) }
             } finally {

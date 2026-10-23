@@ -92,7 +92,7 @@ private val previewSlots = Semaphore(2)
             }
             if (state.removalNames.isNotEmpty()) Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                 Column(Modifier.padding(12.dp)) {
-                    Text("${state.removalNames.size} originals still outside the vault", fontWeight = FontWeight.Medium)
+                    Text("Originals still outside the vault: ${state.removalNames.size}", fontWeight = FontWeight.Medium)
                     Text("Verified vault copies are ready. Review before removing the originals from shared storage.", style = MaterialTheme.typography.bodySmall)
                     Row {
                         TextButton(onClick = { dialog = "remove-originals" }, enabled = !state.busy) { Text("Review originals") }

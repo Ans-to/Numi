@@ -103,16 +103,9 @@ class PickerImportTest {
             val fixtureUri = "content://media/external_primary/downloads/$fixtureId"
             val written = shell("printf '%s' '${Base64.encodeToString(bytes, Base64.NO_WRAP)}' | base64 -d | content write --uri '$fixtureUri'")
             check(shell("test -s '$path' && echo SOURCE_READY").contains("SOURCE_READY")) { "Synthetic source was not written: $written" }
-            if (moveCase == "duplicate") {
-                val seed = java.io.File(compose.activity.cacheDir, "verified-duplicate-seed.png").apply { writeBytes(bytes) }
-                try {
-                    val copy = model.vault.importWithReceipt(android.net.Uri.fromFile(seed), null)
-                    model.vault.rename(copy.item.id, "Existing verified copy.png")
-                } finally { seed.delete() }
-            }
             dismissLauncherAnr()
             compose.onNodeWithText("Import files", useUnmergedTree = true).performClick()
-            val pickerLabel = if (moveCase != null) "Move to vault" else if (photoPicker) "Photos & videos" else "Documents & other files"
+            val pickerLabel = if (moveCase != null && moveCase != "duplicate") "Move to vault" else if (photoPicker) "Photos & videos" else "Documents & other files"
             compose.onNodeWithText(pickerLabel, useUnmergedTree = true).performClick()
             awaitSystemPicker(pickerLabel)
             // The regression: pausing/locking the app used to unregister the Compose launcher.
@@ -150,8 +143,7 @@ class PickerImportTest {
             // original filename. Identify this import by its verified content.
             compose.waitUntil(30000) { !model.state.value.busy && model.state.value.catalog.items.any { it.id !in beforeIds && it.digest == expectedDigest } }
             val item = model.state.value.catalog.items.first { it.id !in beforeIds && it.digest == expectedDigest }
-            if (!photoPicker && moveCase != "duplicate") assertEquals(name, item.name)
-            if (moveCase == "duplicate") assertTrue(model.state.value.message.orEmpty().contains("1 already in vault"))
+            if (!photoPicker) assertEquals(name, item.name)
             assertTrue(item.name.endsWith(".png"))
             assertEquals("Photos", item.category)
             assertArrayEquals(bytes, model.vault.reader(item).stream().use { it.readBytes() })
@@ -166,6 +158,23 @@ class PickerImportTest {
             assertTrue(shell("test -f '$path' && echo present").contains("present"))
             assertEquals(0, model.state.value.pendingImports)
             device.pressBack()
+            if (moveCase == "duplicate") {
+                val itemCount = model.state.value.catalog.items.size
+                compose.runOnUiThread { model.rename(item.id, "Previously imported.png") }
+                compose.waitUntil(15000) { !model.state.value.busy && model.state.value.catalog.items.any { it.id == item.id && it.name == "Previously imported.png" } }
+                compose.runOnUiThread { model.message(null) }
+                compose.onNodeWithText("Import files", useUnmergedTree = true).performClick()
+                compose.onNodeWithText("Move to vault", useUnmergedTree = true).performClick()
+                awaitSystemPicker("Move to vault")
+                device.wait(Until.findObject(By.text(name)), 15000)!!.click()
+                if (!device.wait(Until.hasObject(By.pkg("com.calcvault")), 3000)) device.findObject(By.text(Pattern.compile("(?i)(select|open|done)")))?.click()
+                compose.waitUntil(15000) { model.state.value.pendingImports == 1 }
+                unlock()
+                compose.waitUntil(30000) { !model.state.value.busy && model.state.value.removalNames.isNotEmpty() }
+                assertEquals(itemCount, model.state.value.catalog.items.size)
+                assertTrue(model.state.value.message.orEmpty().contains("1 already in vault"))
+                compose.runOnUiThread { model.message(null) }
+            }
             if (moveCase != null) {
                 assertEquals(listOf(name), model.state.value.removalNames)
                 if (moveCase == "changed") {
@@ -187,7 +196,7 @@ class PickerImportTest {
                 } else compose.onNodeWithText("Remove originals", useUnmergedTree = true).performClick()
                 compose.waitUntil(30000) { !model.state.value.busy && model.state.value.removalNames.isEmpty() }
                 if (moveCase in listOf("remove", "duplicate")) {
-                    assertTrue(model.state.value.message.orEmpty().contains("1 originals removed"))
+                    assertTrue(model.state.value.message.orEmpty().contains("1 original removed"))
                     assertTrue(shell("test ! -f '$path' && echo absent").contains("absent"))
                     assertTrue(shell("content query --uri content://media/external_primary/images/media --projection _id --where \"_display_name='$name'\"").contains("No result found"))
                     assertArrayEquals(bytes, model.vault.reader(item).stream().use { it.readBytes() })

@@ -49,7 +49,7 @@ class SourceRemoval(private val context: Context, private val vault: VaultReposi
         vault.reader(item).stream().use { matches(it, item, active) }
 
     fun prepare(uri: Uri, copy: ImportedCopy, active: () -> Boolean): SourceRemovalCandidate? {
-        if (!supportsRemoval(uri) || !verifiedCopy(copy.item, active)) return null
+        if (!supportsRemoval(uri) || !verifiedCopy(vault.committedItem(copy.item.id, copy.item.digest), active)) return null
         return SourceRemovalCandidate(uri, copy.item.id, copy.sourceName, copy.item.digest)
     }
 
@@ -58,7 +58,7 @@ class SourceRemoval(private val context: Context, private val vault: VaultReposi
         if (!active()) return SourceRemovalResult.INTERRUPTED
         if (!supportsRemoval(candidate.uri)) return SourceRemovalResult.UNSUPPORTED
         val safe = runCatching {
-            val item = vault.snapshot().items.single { it.id == candidate.itemId && it.digest == candidate.digest }
+            val item = vault.committedItem(candidate.itemId, candidate.digest)
             verifiedCopy(item, active) && context.contentResolver.openInputStream(candidate.uri)?.use { matches(it, item, active) } == true
         }.getOrDefault(false)
         if (!active()) return SourceRemovalResult.INTERRUPTED

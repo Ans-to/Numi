@@ -137,7 +137,7 @@ private val previewSlots = Semaphore(2)
                         }
                     }
                 }
-            } else if (filtered.isEmpty()) EmptyVault(if (query.isNotEmpty()) "Nothing by that name" else "A space that's yours", if (query.isNotEmpty()) "Try another search or category." else "Import photos, videos, or documents.\nYour originals stay exactly where they are.")
+            } else if (filtered.isEmpty()) EmptyVault(if (query.isNotEmpty()) "Nothing by that name" else "A space that's yours", if (query.isNotEmpty()) "Try another search or category." else "Import photos, videos, or documents.\nCopy them, or choose Move to vault and review original removal.")
             else LazyVerticalGrid(GridCells.Adaptive(155.dp), contentPadding = PaddingValues(top = 8.dp, bottom = 100.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 items(filtered, key = { it.id }) { item ->
                     ItemCard(item, model.vault, item.id in selected,

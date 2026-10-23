@@ -55,6 +55,17 @@ class VaultRepository(private val context: Context, private val secrets: SecretS
         loaded
     }
     fun snapshot(): Catalog = synchronized(guard) { check(unlocked); catalog }
+    /** Removal must not rely solely on keys still cached in an unlocked session. */
+    fun committedItem(id: String, digest: String): VaultItem = synchronized(guard) {
+        check(unlocked)
+        val live = catalog.items.single { it.id == id && it.digest == digest }
+        val bytes = checkNotNull(secrets.read("catalog"))
+        try {
+            val stored = decode(JSONObject(String(bytes, Charsets.UTF_8))).items.single { it.id == id && it.digest == digest }
+            check(stored.key == live.key && stored.size == live.size)
+            stored
+        } finally { bytes.fill(0) }
+    }
     private fun save(next: Catalog) {
         val bytes = encode(next).toString().toByteArray()
         try { secrets.write("catalog", bytes); catalog = next } finally { bytes.fill(0) }

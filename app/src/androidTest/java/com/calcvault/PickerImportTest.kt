@@ -83,7 +83,7 @@ class PickerImportTest {
         val path = "/sdcard/Download/$name"
         val color = when (moveCase) {
             "remove" -> Color.GREEN; "keep" -> Color.YELLOW; "changed" -> Color.MAGENTA
-            "missing" -> Color.CYAN; "corrupt" -> Color.GRAY; "duplicate" -> Color.DKGRAY
+            "missing" -> Color.CYAN; "corrupt" -> Color.GRAY; "duplicate" -> Color.DKGRAY; "index" -> Color.rgb(120, 80, 20)
             else -> if (photoPicker) Color.BLUE else Color.RED
         }
         val bitmap = Bitmap.createBitmap(96, 64, Bitmap.Config.ARGB_8888).apply { eraseColor(color) }
@@ -91,6 +91,8 @@ class PickerImportTest {
         bitmap.recycle()
         val expectedDigest = Base64.encodeToString(java.security.MessageDigest.getInstance("SHA-256").digest(bytes), Base64.NO_WRAP)
         val beforeIds = model.state.value.catalog.items.map { it.id }.toSet()
+        var savedCatalog: ByteArray? = null
+        val catalogFile = java.io.File(compose.activity.noBackupFilesDir, "security/catalog")
         // Shell creates the source, not the app. Reading the returned document relies on
         // the system picker's content URI grant. This is synthetic data on a disposable emulator.
         try {
@@ -186,6 +188,7 @@ class PickerImportTest {
                     compose.waitUntil(15000) { !model.state.value.busy && model.state.value.catalog.items.none { it.id == item.id } }
                     compose.runOnUiThread { model.message(null) }
                 }
+                if (moveCase == "index") { savedCatalog = catalogFile.readBytes(); catalogFile.appendBytes(byteArrayOf(0)) }
                 if (moveCase == "corrupt") java.io.File(compose.activity.noBackupFilesDir, "vault/${item.id}.cv").appendBytes(byteArrayOf(0))
                 compose.onNodeWithText("Review originals", useUnmergedTree = true).performClick()
                 compose.onNodeWithText("• $name", useUnmergedTree = true).assertExists()
@@ -222,6 +225,7 @@ class PickerImportTest {
                 .joinToString("\n").take(7000)
             throw AssertionError("${e.message}\nImport state: ${model.state.value.message}\nSynthetic test picker UI: $nodes", e)
         } finally {
+            savedCatalog?.let { catalogFile.writeBytes(it); it.fill(0) }
             shell("content delete --uri content://media/external_primary/downloads --where \"_display_name='$name'\"; rm -f '$path'")
         }
     }
@@ -232,5 +236,6 @@ class PickerImportTest {
     @Test fun changedSourceIsNeverRemoved() = runPickerCase(false, "changed")
     @Test fun missingVaultCopyPreventsOriginalRemoval() = runPickerCase(false, "missing")
     @Test fun corruptedVaultCopyPreventsOriginalRemoval() = runPickerCase(false, "corrupt")
+    @Test fun damagedCommittedCatalogPreventsOriginalRemoval() = runPickerCase(false, "index")
     @Test fun existingVerifiedDuplicateCanBeMovedWithoutAnotherVaultCopy() = runPickerCase(false, "duplicate")
 }

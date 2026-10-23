@@ -84,6 +84,8 @@ class PickerImportTest {
         val bitmap = Bitmap.createBitmap(96, 64, Bitmap.Config.ARGB_8888).apply { eraseColor(if (photoPicker) Color.BLUE else Color.RED) }
         val bytes = ByteArrayOutputStream().use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out); out.toByteArray() }
         bitmap.recycle()
+        val expectedDigest = Base64.encodeToString(java.security.MessageDigest.getInstance("SHA-256").digest(bytes), Base64.NO_WRAP)
+        val beforeIds = model.state.value.catalog.items.map { it.id }.toSet()
         // Shell creates the source, not the app. Reading the returned document relies on
         // the system picker's content URI grant. This is synthetic data on a disposable emulator.
         try {
@@ -131,17 +133,21 @@ class PickerImportTest {
             compose.activityRule.scenario.recreate()
             compose.waitUntil(15000) { !model.state.value.concealed }
             unlock()
-            compose.waitUntil(30000) { !model.state.value.busy && model.state.value.catalog.items.any { it.name == name } }
-            val item = model.state.value.catalog.items.first { it.name == name }
+            // Photo Picker deliberately exposes <media-id>.<extension>, not the
+            // original filename. Identify this import by its verified content.
+            compose.waitUntil(30000) { !model.state.value.busy && model.state.value.catalog.items.any { it.id !in beforeIds && it.digest == expectedDigest } }
+            val item = model.state.value.catalog.items.first { it.id !in beforeIds && it.digest == expectedDigest }
+            if (!photoPicker) assertEquals(name, item.name)
+            assertTrue(item.name.endsWith(".png"))
             assertEquals("Photos", item.category)
             assertArrayEquals(bytes, model.vault.reader(item).stream().use { it.readBytes() })
             val decoded = PrivateMedia.image(model.vault, item, 256)
             assertEquals(if (photoPicker) Color.BLUE else Color.RED, decoded.getPixel(0, 0))
             decoded.recycle()
             compose.runOnUiThread { model.message(null) }
-            compose.onNodeWithText(name, useUnmergedTree = true).performClick()
-            compose.waitUntil(15000) { compose.onAllNodes(hasContentDescription(name)).fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithContentDescription(name).assertIsDisplayed()
+            compose.onNodeWithText(item.name, useUnmergedTree = true).performClick()
+            compose.waitUntil(15000) { compose.onAllNodes(hasContentDescription(item.name)).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithContentDescription(item.name).assertIsDisplayed()
             // Original remains intact; import never removes it.
             assertTrue(shell("test -f '$path' && echo present").contains("present"))
             assertEquals(0, model.state.value.pendingImports)

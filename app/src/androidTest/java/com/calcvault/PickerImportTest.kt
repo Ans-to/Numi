@@ -34,7 +34,7 @@ class PickerImportTest {
         // UiAutomation does not interpret shell pipelines itself. Feed a real shell
         // over its stdin pipe; otherwise fixture creation can silently do nothing.
         val pipes = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommandRw("sh")
-        ParcelFileDescriptor.AutoCloseOutputStream(pipes[1]).bufferedWriter().use { it.write("set -e\n$command\n") }
+        ParcelFileDescriptor.AutoCloseOutputStream(pipes[1]).bufferedWriter().use { it.write("exec 2>&1\nset -e\n$command\n") }
         return ParcelFileDescriptor.AutoCloseInputStream(pipes[0]).bufferedReader().use { it.readText() }
     }
     private fun dismissLauncherAnr(): Boolean {
@@ -87,7 +87,11 @@ class PickerImportTest {
         // Shell creates the source, not the app. Reading the returned document relies on
         // the system picker's content URI grant. This is synthetic data on a disposable emulator.
         val inserted = shell("content insert --uri content://media/external_primary/downloads --bind _display_name:s:$name --bind mime_type:s:image/png --bind relative_path:s:Download/ --bind is_pending:i:1")
-        val fixtureUri = checkNotNull(Regex("content://\\S+").find(inserted)?.value) { "Fixture insertion failed: $inserted" }
+        // Android's content insert deliberately prints no URI. Resolve the actual
+        // row from a query rather than treating empty stdout as insertion failure.
+        val rows = shell("content query --uri content://media/external_primary/downloads --projection _id --where \"_display_name='$name'\"")
+        val fixtureId = checkNotNull(Regex("_id=(\\d+)").find(rows)?.groupValues?.get(1)) { "Fixture insertion failed: $inserted $rows" }
+        val fixtureUri = "content://media/external_primary/downloads/$fixtureId"
         shell("printf '%s' '${Base64.encodeToString(bytes, Base64.NO_WRAP)}' | base64 -d | content write --uri '$fixtureUri'; content update --uri '$fixtureUri' --bind is_pending:i:0")
         check(shell("test -s '$path' && echo SOURCE_READY").contains("SOURCE_READY")) { "Synthetic source was not written" }
 

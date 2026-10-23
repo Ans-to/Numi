@@ -17,7 +17,8 @@
         android:icon="@drawable/ic_calculator"
         android:supportsRtl="true"
         android:theme="@style/Theme.CalcVault">
-        <activity android:name=".MainActivity" android:exported="true">
+        <!-- One activity instance owns the in-memory catalog/session. Avoid concurrent stale-index writers. -->
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

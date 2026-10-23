@@ -69,5 +69,7 @@ class VaultDeviceTest {
         assertFalse(info.requestedPermissions.orEmpty().contains("android.permission.READ_EXTERNAL_STORAGE"))
         assertFalse(info.requestedPermissions.orEmpty().contains("android.permission.WAKE_LOCK"))
         assertEquals(0, context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_ALLOW_BACKUP)
+        val activity = context.packageManager.getActivityInfo(android.content.ComponentName(context, MainActivity::class.java), 0)
+        assertEquals(android.content.pm.ActivityInfo.LAUNCH_SINGLE_TASK, activity.launchMode)
     }
 }

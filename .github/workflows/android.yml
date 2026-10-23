@@ -31,6 +31,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: ./scripts/ci-command.sh python3 scripts/publish-build-blobs.py
+      - name: Publish test counts
+        if: always()
+        run: python3 scripts/report-tests.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -52,6 +55,8 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
+      - name: Install Android platform
+        run: ./scripts/ci-command.sh ./scripts/install-android-ci.sh
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -60,10 +65,14 @@ jobs:
       - uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
+          target: google_apis
           arch: x86_64
           profile: pixel_2
           disable-animations: true
-          script: ./gradlew :app:connectedDebugAndroidTest --stacktrace
+          script: ./scripts/ci-command.sh ./gradlew :app:connectedDebugAndroidTest --stacktrace
+      - name: Publish test counts
+        if: always()
+        run: python3 scripts/report-tests.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:

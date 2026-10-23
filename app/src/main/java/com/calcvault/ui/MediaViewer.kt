@@ -17,6 +17,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.VolumeUp
+import androidx.compose.material.icons.outlined.Fullscreen
+import androidx.compose.material.icons.outlined.FullscreenExit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -44,12 +46,22 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable fun MediaViewer(item: VaultItem, photos: List<VaultItem>, repository: VaultRepository, close: () -> Unit) {
-    BackHandler(onBack = close)
-    Scaffold(topBar = { TopAppBar(title = { Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis) }, navigationIcon = { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back to vault") } }) }) { padding ->
+    var fullscreen by remember(item.id) { mutableStateOf(false) }
+    val activity = LocalContext.current as? android.app.Activity
+    DisposableEffect(fullscreen) {
+        val controller = activity?.let { androidx.core.view.WindowCompat.getInsetsController(it.window, it.window.decorView) }
+        if (fullscreen) {
+            controller?.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller?.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        } else controller?.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        onDispose { controller?.show(androidx.core.view.WindowInsetsCompat.Type.systemBars()) }
+    }
+    BackHandler { if (fullscreen) fullscreen = false else close() }
+    Scaffold(topBar = { if (!fullscreen) TopAppBar(title = { Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis) }, navigationIcon = { IconButton(onClick = close) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back to vault") } }) }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
             when {
                 item.category == "Photos" -> PhotoPager(item, photos.ifEmpty { listOf(item) }, repository)
-                item.category == "Videos" -> VideoViewer(item, repository)
+                item.category == "Videos" -> VideoViewer(item, repository, fullscreen) { fullscreen = it }
                 item.mime == "application/pdf" || item.name.endsWith(".pdf", true) -> PdfViewer(item, repository)
                 item.mime.startsWith("text/") || item.name.substringAfterLast('.').lowercase() in listOf("txt", "md", "csv", "json", "log") -> TextViewer(item, repository)
                 else -> ViewerError("No private preview for this format", "This file is stored encrypted. This version previews images, supported videos, PDFs and text. It does not hand private files to external apps or create plaintext export copies.")
@@ -89,7 +101,7 @@ import kotlinx.coroutines.withContext
 }
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-@Composable private fun VideoViewer(item: VaultItem, repository: VaultRepository) {
+@Composable private fun VideoViewer(item: VaultItem, repository: VaultRepository, fullscreen: Boolean, onFullscreen: (Boolean) -> Unit) {
     val context = LocalContext.current
     var failed by remember(item.id) { mutableStateOf(false) }
     var volume by remember { mutableFloatStateOf(1f) }
@@ -104,13 +116,18 @@ import kotlinx.coroutines.withContext
     DisposableEffect(player) { onDispose { player.stop(); player.release() } }
     if (failed) ViewerError("Video cannot be played", "This device may not support the codec, or the encrypted file may be damaged. Your file has not been changed.")
     else Column(Modifier.fillMaxSize()) {
-        AndroidView(factory = { ctx -> PlayerView(ctx).apply { this.player = player; useController = true; (videoSurfaceView as? SurfaceView)?.setSecure(true) } }, modifier = Modifier.fillMaxWidth().weight(1f),
-            onRelease = { it.player = null })
-        Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.fillMaxWidth().weight(1f)) {
+            AndroidView(factory = { ctx -> PlayerView(ctx).apply { this.player = player; useController = true; (videoSurfaceView as? SurfaceView)?.setSecure(true) } }, modifier = Modifier.fillMaxSize(),
+                onRelease = { it.player = null })
+            FilledTonalIconButton(onClick = { onFullscreen(!fullscreen) }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) {
+                Icon(if (fullscreen) Icons.Outlined.FullscreenExit else Icons.Outlined.Fullscreen, if (fullscreen) "Exit full screen" else "Full screen")
+            }
+        }
+        if (!fullscreen) Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Outlined.VolumeUp, "Playback volume"); Spacer(Modifier.width(12.dp))
             Slider(volume, { volume = it; player.volume = it }, Modifier.weight(1f))
         }
-        Text("Rotate for a wider view · Tap video for playback controls", Modifier.padding(16.dp).align(Alignment.CenterHorizontally), style = MaterialTheme.typography.labelSmall)
+        if (!fullscreen) Text("Rotate for a wider view · Tap video for playback controls", Modifier.padding(16.dp).align(Alignment.CenterHorizontally), style = MaterialTheme.typography.labelSmall)
     }
 }
 

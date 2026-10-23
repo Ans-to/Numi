@@ -35,11 +35,11 @@ class BiometricGate(private val activity: FragmentActivity) {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             if (enroll) cipher.init(Cipher.ENCRYPT_MODE, key)
             else cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, checkNotNull(record).first))
-            cipher.updateAAD(marker)
             val prompt = BiometricPrompt(activity, ContextCompat.getMainExecutor(activity), object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     try {
                         val approved = checkNotNull(result.cryptoObject?.cipher)
+                        approved.updateAAD(marker)
                         if (enroll) complete(approved.iv, approved.doFinal(marker))
                         else { check(approved.doFinal(checkNotNull(record).second).contentEquals(marker)); complete(null, null) }
                     } catch (_: Exception) { error("Biometric key is unavailable or changed. Use your PIN and enable biometrics again.") }

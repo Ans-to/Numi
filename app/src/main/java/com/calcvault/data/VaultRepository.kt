@@ -53,14 +53,15 @@ class VaultRepository(private val context: Context, private val secrets: SecretS
         val rawName = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
             if (it.moveToFirst()) it.getString(0) else null
         } ?: "Imported file"
-        val name = rawName.filterNot { it.isISOControl() || it == '/' || it == '\\' }.take(160).ifBlank { "Imported file" }
+        val sanitized = rawName.filterNot { it.isISOControl() || it == '/' || it == '\\' }.take(160).trim()
+        val name = sanitized.takeIf(ImportTransaction::validName) ?: "Imported file"
         val mime = resolver.getType(uri) ?: "application/octet-stream"
         val prepared = checkNotNull(resolver.openInputStream(uri)) { "Cannot read the selected file" }.use {
             ImportTransaction.prepare(root, it) { !unlocked || generation != ticket || Thread.currentThread().isInterrupted }
         }
         try {
             // Persist the ciphertext directory entry before publishing it in the catalog.
-            val fd = android.system.Os.open(root.path, android.system.OsConstants.O_RDONLY or android.system.OsConstants.O_DIRECTORY, 0)
+            val fd = android.system.Os.open(root.path, android.system.OsConstants.O_RDONLY, 0)
             try { android.system.Os.fsync(fd) } finally { android.system.Os.close(fd) }
             synchronized(guard) {
                 check(unlocked && generation == ticket) { "Vault locked during import. Original is unchanged." }

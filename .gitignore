@@ -9,3 +9,6 @@ signing.properties
 artifacts/
 *.hprof
 .DS_Store
+
+**/__pycache__/
+*.p12

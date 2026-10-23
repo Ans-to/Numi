@@ -18,5 +18,6 @@ yes | sdkmanager --licenses >/dev/null
 set -o pipefail
 sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
 echo "ANDROID_HOME=$sdk" >> "$GITHUB_ENV"
+echo "ANDROID_SDK_ROOT=$sdk" >> "$GITHUB_ENV"
 echo "$sdk/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
 echo "$sdk/platform-tools" >> "$GITHUB_PATH"

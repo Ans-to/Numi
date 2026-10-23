@@ -50,6 +50,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         if (state.value.busy || state.value.fatal) return
         if (key == "=") { equals(); return }
         mutable.update { s ->
+            val inputLimit = if (s.pinStage > 0) 12 else 256
             val input = when (key) {
                 "AC" -> ""
                 "⌫" -> s.input.dropLast(1)
@@ -57,7 +58,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                 else -> {
                     if (s.pinStage == 0 && s.input.isEmpty() && key in listOf("+", "−", "×", "÷", "%") && s.result.toBigDecimalOrNull() != null) {
                         s.result + key
-                    } else if (s.input.length < (if (s.pinStage > 0) 12 else 256) && (s.pinStage == 0 || key.all { it.isDigit() })) {
+                    } else if (s.input.length < inputLimit && (s.pinStage == 0 || key.all { it.isDigit() })) {
                         s.input + key
                     } else {
                         s.input

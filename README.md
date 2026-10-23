@@ -69,12 +69,12 @@ Generate a long-lived release key **outside this checkout**, with restricted per
 ./scripts/create-owner-key.sh /secure/path/calc-vault-owner
 ```
 
-The script generates a random password and a 3072-bit RSA signing key. It writes `owner.jks` and `owner.password` with owner-only permissions; it does not print the password. Move the password to a password manager and keep independent encrypted backups of the key. Losing the signing key prevents updating existing installs; a new signing key is not interchangeable.
+The script generates a random password and a 3072-bit RSA signing key. It writes `owner.p12` and `owner.password` with owner-only permissions; it does not print the password. Move the password to a password manager and keep independent encrypted backups of the key. Losing the signing key prevents updating existing installs; a new signing key is not interchangeable.
 
 Configure a signed Gradle build without command-line secrets:
 
 ```bash
-export CALCVAULT_KEYSTORE=/secure/path/calc-vault-owner/owner.jks
+export CALCVAULT_KEYSTORE=/secure/path/calc-vault-owner/owner.p12
 export CALCVAULT_KEY_ALIAS=owner
 export CALCVAULT_STORE_PASSWORD="$(cat /secure/path/calc-vault-owner/owner.password)"
 export CALCVAULT_KEY_PASSWORD="$CALCVAULT_STORE_PASSWORD"

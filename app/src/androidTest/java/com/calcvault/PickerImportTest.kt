@@ -3,6 +3,7 @@ package com.calcvault
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.util.Base64
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -16,6 +17,8 @@ import com.calcvault.ui.VaultViewModel
 import java.io.ByteArrayOutputStream
 import java.util.regex.Pattern
 import org.junit.Assert.*
+import org.junit.Before
+import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 
@@ -27,6 +30,28 @@ class PickerImportTest {
     private fun shell(command: String): String = ParcelFileDescriptor.AutoCloseInputStream(
         InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command)
     ).bufferedReader().use { it.readText() }
+    private fun dismissLauncherAnr(): Boolean {
+        // A cold CI emulator can show a launcher ANR over unrelated apps. Never
+        // dismiss Calculator or picker failures: those must fail this regression.
+        if (!device.hasObject(By.text("Pixel Launcher isn't responding"))) return false
+        device.findObject(By.text("Close app"))?.click()
+        return true
+    }
+    @Before fun prepareSystemUi() {
+        device.registerWatcher("launcherAnr") { dismissLauncherAnr() }
+        dismissLauncherAnr()
+        shell("am force-stop com.google.android.apps.nexuslauncher")
+    }
+    @After fun removeSystemWatcher() { device.removeWatcher("launcherAnr") }
+    private fun awaitSystemPicker(label: String) {
+        val deadline = SystemClock.uptimeMillis() + 30000
+        while (SystemClock.uptimeMillis() < deadline) {
+            val dismissed = dismissLauncherAnr()
+            if (dismissed) device.findObject(By.pkg("com.calcvault").text(label))?.click()
+            if (device.wait(Until.hasObject(By.pkg(Pattern.compile(".*(documentsui|media.module).*"))), 1000)) return
+        }
+        fail("System picker must actually be foreground")
+    }
     private fun type(pin: String) { pin.forEach { compose.onNodeWithText(it.toString(), useUnmergedTree = true).performClick() } }
     private fun unlock() {
         compose.waitUntil(15000) { model.state.value.ready && !model.state.value.busy }
@@ -56,9 +81,10 @@ class PickerImportTest {
         // the system picker's content URI grant. This is synthetic data on a disposable emulator.
         shell("mkdir -p /sdcard/Download; printf '%s' '${Base64.encodeToString(bytes, Base64.NO_WRAP)}' | base64 -d > '$path'; am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d 'file://$path'")
         try {
+            dismissLauncherAnr()
             compose.onNodeWithText("Import files", useUnmergedTree = true).performClick()
             compose.onNodeWithText(if (photoPicker) "Photos & videos" else "Documents & other files", useUnmergedTree = true).performClick()
-            assertTrue("System picker must actually be foreground", device.wait(Until.hasObject(By.pkg(Pattern.compile(".*(documentsui|media.module).*"))), 20000))
+            awaitSystemPicker(if (photoPicker) "Photos & videos" else "Documents & other files")
             // The regression: pausing/locking the app used to unregister the Compose launcher.
             assertFalse("Immediate background locking remains enabled", model.state.value.unlocked)
             if (!photoPicker) {
@@ -106,7 +132,7 @@ class PickerImportTest {
             assertEquals(0, model.state.value.pendingImports)
             device.pressBack()
             compose.onNodeWithContentDescription("Lock vault").performClick()
-        } catch (e: AssertionError) {
+        } catch (e: Throwable) {
             val hierarchy = ByteArrayOutputStream()
             runCatching { device.dumpWindowHierarchy(hierarchy) }
             val nodes = Regex("<node [^>]+>").findAll(hierarchy.toString())

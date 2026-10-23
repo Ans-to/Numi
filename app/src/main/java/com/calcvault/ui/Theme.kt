@@ -1,7 +1,11 @@
 package com.calcvault.ui
 
 import androidx.compose.material3.*
+import android.app.Activity
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import androidx.compose.ui.graphics.Color
 
 private val Dark = darkColorScheme(
@@ -11,4 +15,15 @@ private val Dark = darkColorScheme(
     outline = Color(0xFF505A51), secondaryContainer = Color(0xFF2D3530)
 )
 private val Light = lightColorScheme(primary = Color(0xFF48642E), background = Color(0xFFF6F8F1), surface = Color(0xFFF6F8F1), surfaceVariant = Color(0xFFE5EADF))
-@Composable fun CalcVaultTheme(light: Boolean, content: @Composable () -> Unit) { MaterialTheme(colorScheme = if (light) Light else Dark, content = content) }
+@Composable fun CalcVaultTheme(light: Boolean, content: @Composable () -> Unit) {
+    val view = LocalView.current
+    if (!view.isInEditMode) SideEffect {
+        (view.context as? Activity)?.window?.let { window ->
+            WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightStatusBars = light
+                isAppearanceLightNavigationBars = light
+            }
+        }
+    }
+    MaterialTheme(colorScheme = if (light) Light else Dark, content = content)
+}

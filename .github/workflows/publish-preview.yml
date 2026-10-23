@@ -25,15 +25,15 @@ jobs:
           # content digest below prevents accidentally publishing another build.
           delivery="$RUNNER_TEMP/calc-vault-delivery"
           mkdir -p "$delivery"
-          gh api "repos/$GH_REPO/git/blobs/42e18a813d155c1e42c5e75202c5d96a47999dd7" --jq .content | base64 --decode > "$delivery/calc-vault-release.apk"
-          echo '18193c0ba3171c655f47786d3c88505cf0d9e54343c9419f49114382192c6f2b  calc-vault-release.apk' > "$delivery/SHA256SUMS.txt"
+          gh api "repos/$GH_REPO/git/blobs/6ca47f6c50eb4b6eac298e5f0a1da3eba4e2ae59" --jq .content | base64 --decode > "$delivery/calc-vault-release.apk"
+          echo 'e892f880cb42950931c3820f67d99d96e00cc80ec2439875e6b1d94a9358c93b  calc-vault-release.apk' > "$delivery/SHA256SUMS.txt"
           (cd "$delivery" && sha256sum --check SHA256SUMS.txt)
-          if gh release view v1.0.1-preview.1 >/dev/null 2>&1; then
-            gh release upload v1.0.1-preview.1 "$delivery/calc-vault-release.apk" "$delivery/SHA256SUMS.txt" --clobber
+          if gh release view v1.0.2-preview.1 >/dev/null 2>&1; then
+            gh release upload v1.0.2-preview.1 "$delivery/calc-vault-release.apk" "$delivery/SHA256SUMS.txt" --clobber
           else
-            gh release create v1.0.1-preview.1 "$delivery/calc-vault-release.apk" "$delivery/SHA256SUMS.txt" \
+            gh release create v1.0.2-preview.1 "$delivery/calc-vault-release.apk" "$delivery/SHA256SUMS.txt" \
               --target "$GITHUB_SHA" \
-              --title 'Calc Vault 1.0.1 — Calculator and import fixes' --prerelease --latest=false \
+              --title 'Calc Vault 1.0.2 — Confirmed move to vault' --prerelease --latest=false \
               --notes-file .github/preview-release-notes.md
           fi
-          gh release view v1.0.1-preview.1 --json url,assets
+          gh release view v1.0.2-preview.1 --json url,assets

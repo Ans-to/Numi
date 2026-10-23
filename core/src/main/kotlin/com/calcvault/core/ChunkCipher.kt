@@ -107,12 +107,12 @@ object ChunkCipher {
             override fun read(b: ByteArray, off: Int, len: Int): Int = this@Reader.read(position, b, off, len).also { if (it > 0) position += it }
             override fun close() { this@Reader.close() }
         }
-        fun verify(expectedDigest: ByteArray) {
+        fun verify(expectedDigest: ByteArray, cancelled: () -> Boolean = { false }) {
             val digest = MessageDigest.getInstance("SHA-256")
             val buffer = ByteArray(CHUNK)
             try {
                 var position = 0L
-                while (position < size) { val n = read(position, buffer, 0, buffer.size); digest.update(buffer, 0, n); position += n }
+                while (position < size) { if (cancelled()) throw InterruptedIOException("Verification interrupted"); val n = read(position, buffer, 0, buffer.size); digest.update(buffer, 0, n); position += n }
                 require(MessageDigest.isEqual(expectedDigest, digest.digest())) { "Import verification failed" }
             } finally { buffer.fill(0) }
         }

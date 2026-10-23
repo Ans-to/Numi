@@ -59,6 +59,9 @@ class VaultRepository(private val context: Context, private val secrets: SecretS
             ImportTransaction.prepare(root, it) { !unlocked || generation != ticket || Thread.currentThread().isInterrupted }
         }
         try {
+            // Persist the ciphertext directory entry before publishing it in the catalog.
+            val fd = android.system.Os.open(root.path, android.system.OsConstants.O_RDONLY or android.system.OsConstants.O_DIRECTORY, 0)
+            try { android.system.Os.fsync(fd) } finally { android.system.Os.close(fd) }
             synchronized(guard) {
                 check(unlocked && generation == ticket) { "Vault locked during import. Original is unchanged." }
                 if (catalog.items.any { it.digest == prepared.digest.b64() }) { prepared.file.delete(); return false }
@@ -66,7 +69,11 @@ class VaultRepository(private val context: Context, private val secrets: SecretS
                     folder?.takeIf { f -> catalog.folders.any { it.id == f } }, prepared.key.encoded.b64(), prepared.digest.b64())
                 save(catalog.copy(items = catalog.items + item))
             }
-        } catch (e: Exception) { prepared.file.delete(); throw e }
+        } catch (e: Exception) {
+            // A failed metadata commit can have an ambiguous durability outcome. Preserve ciphertext,
+            // rather than risk deleting a file referenced by a successfully committed catalog.
+            throw e
+        }
         return true
     }
     fun rename(id: String, name: String) = synchronized(guard) {
@@ -100,7 +107,12 @@ class VaultRepository(private val context: Context, private val secrets: SecretS
     inner class SecureReader(val item: VaultItem, private val delegate: ChunkCipher.Reader, private val ticket: Int) : Closeable {
         fun read(position: Long, target: ByteArray, offset: Int, size: Int): Int {
             check(unlocked && generation == ticket) { "Vault is locked" }
-            return delegate.read(position, target, offset, size)
+            val count = delegate.read(position, target, offset, size)
+            if (!unlocked || generation != ticket) {
+                if (count > 0) target.fill(0, offset, offset + count)
+                throw java.io.IOException("Vault is locked")
+            }
+            return count
         }
         fun stream(): InputStream = object : InputStream() {
             private var position = 0L

@@ -54,8 +54,15 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                 "AC" -> ""
                 "⌫" -> s.input.dropLast(1)
                 "±" -> if (s.input.startsWith('-')) s.input.drop(1) else "-${s.input}"
-                else -> if (s.pinStage == 0 && s.input.isEmpty() && key in listOf("+", "−", "×", "÷", "%") && s.result.toBigDecimalOrNull() != null) s.result + key
-                else if (s.input.length < (if (s.pinStage > 0) 12 else 256) && (s.pinStage == 0 || key.all { it.isDigit() })) s.input + key else s.input
+                else -> {
+                    if (s.pinStage == 0 && s.input.isEmpty() && key in listOf("+", "−", "×", "÷", "%") && s.result.toBigDecimalOrNull() != null) {
+                        s.result + key
+                    } else if (s.input.length < (if (s.pinStage > 0) 12 else 256) && (s.pinStage == 0 || key.all { it.isDigit() })) {
+                        s.input + key
+                    } else {
+                        s.input
+                    }
+                }
             }
             s.copy(input = input, result = if (key == "AC") "0" else s.result)
         }

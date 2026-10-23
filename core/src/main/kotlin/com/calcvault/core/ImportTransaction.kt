@@ -17,7 +17,7 @@ object ImportTransaction {
         val key = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
         try {
             val written = ChunkCipher.encrypt(input, partial, key, id, cancelled)
-            ChunkCipher.Reader(partial, key, id, written.size).use { it.verify(written.digest) }
+            ChunkCipher.Reader(partial, key, id, written.size).use { it.verify(written.digest, cancelled) }
             if (cancelled()) throw java.io.InterruptedIOException("Import interrupted")
             check(partial.renameTo(destination)) { "Cannot finalize encrypted file" }
             return Prepared(id, destination, key, written.size, written.digest)

@@ -1,0 +1,39 @@
+name: Publish verified Android preview
+on:
+  workflow_dispatch:
+  push:
+    branches: [arena/d236bb71-numi]
+    paths:
+      - '.github/workflows/publish-preview.yml'
+      - '.github/preview-release-notes.md'
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Retrieve verified owner-signed APK and publish download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This is an already-signed public binary, not a signing key. The immutable
+          # content digest below prevents accidentally publishing another build.
+          delivery="$RUNNER_TEMP/calc-vault-delivery"
+          mkdir -p "$delivery"
+          gh api "repos/$GH_REPO/git/blobs/183e18039a681fb562d6e5e0f09b533c946534b5" --jq .content | base64 --decode > "$delivery/calc-vault-release.apk"
+          echo 'b69e9970c9d48935d78e4cf9cdd28a3a0d2e66c0526d5283de12796629a3670d  calc-vault-release.apk' > "$delivery/SHA256SUMS.txt"
+          (cd "$delivery" && sha256sum --check SHA256SUMS.txt)
+          if gh release view v1.0.0-preview.1 >/dev/null 2>&1; then
+            gh release upload v1.0.0-preview.1 "$delivery/calc-vault-release.apk" "$delivery/SHA256SUMS.txt" --clobber
+          else
+            gh release create v1.0.0-preview.1 "$delivery/calc-vault-release.apk" "$delivery/SHA256SUMS.txt" \
+              --target a753b64565776b6eb2f81829e7e5216775fe6f58 \
+              --title 'Calc Vault 1.0.0 — Android preview' --prerelease --latest=false \
+              --notes-file .github/preview-release-notes.md
+          fi
+          gh release view v1.0.0-preview.1 --json url,assets

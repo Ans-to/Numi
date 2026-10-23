@@ -2,7 +2,7 @@
 
 A native, offline Android calculator with PIN-gated, encrypted private storage. Kotlin, Jetpack Compose / Material 3, MVVM, minimum Android 8.0 (API 26). Launcher name: **Calculator**.
 
-> **Verified 2026-10-23:** 39 standalone core checks, Gradle JVM tests, debug/release lint, all four API 35 instrumentation tests, and a minified-release install/launch smoke test passed. Both APKs were built; the owner release was signed locally and its v2/v3 signatures verified. See [TESTING.md](TESTING.md) for exact coverage and untested hardware/device scenarios. This is not an independent security certification.
+> **1.0.1 verified 2026-10-23:** normal calculator digits are visible immediately, and system picker callbacks survive concealment, locking and activity recreation. All **eight API 35 instrumentation tests**, including actual photo/document picker imports, plus JVM tests, debug/release lint, and a minified-release launch check passed. The previous preview missed the picker lifecycle defect reported on a phone. See [TESTING.md](TESTING.md) for exact coverage and remaining device limitations.
 
 ## Delivered files
 
@@ -18,7 +18,9 @@ In the owner workspace `/home/user/Numi`:
 
 These generated outputs are intentionally not committed to Git. CI artifacts contain debug and **unsigned** release builds; owner signing happens offline. The protected owner key and password are outside this checkout at `/home/user/CalcVault-owner-signing/`. Back up that material securely and move the password to a password manager. It cannot recover an on-device vault key.
 
-Verified application-source revision: `c1aee48` on `arena/d236bb71-numi`. Subsequent documentation-only changes do not alter the APK source. [Successful Android verification run](https://github.com/Ans-to/Numi/actions/runs/39905579540).
+**[Download the owner-signed 1.0.1 APK](https://github.com/Ans-to/Numi/releases/download/v1.0.1-preview.1/calc-vault-release.apk)** · [Release and checksum](https://github.com/Ans-to/Numi/releases/tag/v1.0.1-preview.1)
+
+Verified application/test revision: `5ddfbc0`. [Successful full Android verification](https://github.com/Ans-to/Numi/actions/runs/39918852620). This supersedes `v1.0.0-preview.1`; the old release is preserved. Version code **2**, package **com.calcvault**, original owner signing certificate and unchanged encrypted storage format. **Install the owner-signed update over the existing owner-signed app; do not uninstall or clear data.**
 
 ## Open and build
 
@@ -52,11 +54,11 @@ A debug APK is installable but debuggable: **do not use it for real sensitive co
 
 ## Use
 
-1. Launch Calculator. Ordinary arithmetic is available immediately. For private storage, tap **Set up private storage**, enter a **6–12 digit PIN**, press `=`, repeat it and press `=` again. Leading zeros are significant. There is no PIN recovery.
+1. Launch Calculator. Ordinary arithmetic is available immediately. For private storage, open **More options (⋮) → Set up private storage**, enter a **6–12 digit PIN**, press `=`, repeat it and press `=` again. Leading zeros are significant. There is no PIN recovery.
 2. Enter the PIN on the calculator keypad and press `=` to open the vault. Only an entire, unsigned digit sequence is checked: `123456+0`, `(123456)` and `123456%` are calculations, never unlock attempts.
-3. **Privacy trade-off:** standalone digit entries are masked while being entered, not just the final PIN. They are revealed as calculator results only after an unsuccessful unlock check. Adding an operator turns the input into an ordinary displayed calculation. This deliberate behavior prevents the PIN from flashing on screen. Calculator results are not retained in history.
+3. **Normal calculator display:** digits appear as you type, including a PIN entered for unlock. Only explicit PIN setup/confirmation/change screens mask their inputs. No PIN is persisted or logged, and there is no calculator history. Wrong PINs and entries during the cooldown behave as ordinary calculations without a vault-specific error dialog. There is no vault banner or fingerprint button on the normal keypad; optional biometric unlock is in the overflow menu. Repeated unsuccessful raw 6–12 digit entries can delay unlocking for up to five minutes; calculations still work during that cooldown.
 4. Arithmetic supports `+`, `−`, `×`, `÷`, decimal points, unary negatives, parentheses, postfix `%`, `AC`, and backspace. `%` means divide by 100, so `200×5%` gives `10`; `200+5%` gives `200.05`. Decimal128 arithmetic avoids binary floating-point display artifacts; repeating fractions are rounded to 34 significant digits.
-5. Import through **Photos & videos** (Android Photo Picker with system fallback) or **Documents & other files** (Storage Access Framework). No broad storage permissions are requested. Unlock after returning from the picker if auto-lock fired, then confirm **Encrypt & import**. Select at most 100 files per batch. Keep the app foregrounded during import.
+5. Import through **Photos & videos** (Android Photo Picker with system fallback) or **Documents & other files** (Storage Access Framework). No broad storage permissions are requested. Unlock after returning from the picker if auto-lock fired; encryption and verification then start automatically. Progress is displayed, successful/duplicate files are counted, and failed selections remain available for **Retry import** with actionable error messages. Activity recreation retains the pending selection; after a process kill, reselect the originals. Android Photo Picker may supply numeric filenames rather than original names; files can be renamed inside the vault. Select at most 100 files per batch. Keep the app foregrounded during import.
 6. Browse categories, search filenames, sort by newest/name/type/size, create folders, and long-press or use a card's selection circle for bulk move/delete. Rename is available for a single selected item. Exact-byte duplicates are skipped even when the names differ. Same-name, different-content files are retained separately.
 7. Photos support pinch/double-tap zoom and swiping. Videos use Media3 with play/pause/seek and a volume slider. PDFs have paged, zoomable rendering. Text previews are UTF-8 and bounded to 1 MiB. Unsupported file types can be stored but not externally opened or exported in this version; this avoids handing plaintext to another app. Supported codecs depend on the device.
 8. Settings provide PIN change, strong biometric unlock, light theme, and immediate/15-second/1-minute background lock. Biometric access must be explicitly enrolled while unlocked. It uses a cryptographic Android biometric prompt, not just a success callback. PIN access remains available if biometric enrollment changes.

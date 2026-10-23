@@ -17,6 +17,7 @@ data class VaultItem(val id: String, val name: String, val mime: String, val siz
                      val folder: String?, internal val key: String, internal val digest: String) {
     val category get() = when { mime.startsWith("image/") -> "Photos"; mime.startsWith("video/") -> "Videos"; else -> "Files" }
 }
+data class ImportedCopy(val item: VaultItem, val added: Boolean, val sourceName: String)
 data class Folder(val id: String, val name: String)
 data class Catalog(val items: List<VaultItem> = emptyList(), val folders: List<Folder> = emptyList())
 class VaultRepository(private val context: Context, private val secrets: SecretStore) {
@@ -58,7 +59,8 @@ class VaultRepository(private val context: Context, private val secrets: SecretS
         val bytes = encode(next).toString().toByteArray()
         try { secrets.write("catalog", bytes); catalog = next } finally { bytes.fill(0) }
     }
-    fun import(uri: Uri, folder: String?): Boolean {
+    fun import(uri: Uri, folder: String?): Boolean = importWithReceipt(uri, folder).added
+    fun importWithReceipt(uri: Uri, folder: String?): ImportedCopy {
         val ticket = synchronized(guard) { check(unlocked); generation }
         val resolver = context.contentResolver
         // DISPLAY_NAME and MIME are optional provider metadata, not prerequisites for reading.
@@ -79,6 +81,7 @@ class VaultRepository(private val context: Context, private val secrets: SecretS
         } catch (e: Exception) {
             throw VaultImportException(if (!unlocked || generation != ticket) ImportProblem.INTERRUPTED else importProblem(e, ImportProblem.READ), e)
         }
+        var receipt: ImportedCopy? = null
         try {
             // Persist the ciphertext directory entry before publishing it in the catalog.
             val fd = android.system.Os.open(root.path, android.system.OsConstants.O_RDONLY, 0)
@@ -92,17 +95,21 @@ class VaultRepository(private val context: Context, private val secrets: SecretS
             } finally { android.system.Os.close(fd) }
             synchronized(guard) {
                 check(unlocked && generation == ticket) { "Vault locked during import. Original is unchanged." }
-                if (catalog.items.any { it.digest == prepared.digest.b64() }) { prepared.file.delete(); return false }
+                catalog.items.firstOrNull { it.digest == prepared.digest.b64() }?.let { existing ->
+                    prepared.file.delete()
+                    return ImportedCopy(existing, false, name)
+                }
                 val item = VaultItem(prepared.id, name, mime, prepared.size, System.currentTimeMillis(),
                     folder?.takeIf { f -> catalog.folders.any { it.id == f } }, prepared.key.encoded.b64(), prepared.digest.b64())
                 save(catalog.copy(items = catalog.items + item))
+                receipt = ImportedCopy(item, true, name)
             }
         } catch (e: Exception) {
             // A failed metadata commit can have an ambiguous durability outcome. Preserve ciphertext,
             // rather than risk deleting a file referenced by a successfully committed catalog.
             throw VaultImportException(if (!unlocked || generation != ticket) ImportProblem.INTERRUPTED else importProblem(e, ImportProblem.COMMIT), e)
         }
-        return true
+        return checkNotNull(receipt)
     }
     fun rename(id: String, name: String) = synchronized(guard) {
         check(unlocked); require(ImportTransaction.validName(name)) { "Use a valid name (1–160 characters, no slashes)" }

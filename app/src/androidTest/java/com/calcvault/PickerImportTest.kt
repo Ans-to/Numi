@@ -77,11 +77,16 @@ class PickerImportTest {
         type("381729"); compose.onNodeWithText("=").performClick()
         compose.waitUntil(20000) { model.state.value.unlocked }
     }
-    private fun runPickerCase(photoPicker: Boolean) {
+    private fun runPickerCase(photoPicker: Boolean, moveCase: String? = null) {
         unlock()
         val name = "CalcVault-picker-${System.nanoTime()}.png"
         val path = "/sdcard/Download/$name"
-        val bitmap = Bitmap.createBitmap(96, 64, Bitmap.Config.ARGB_8888).apply { eraseColor(if (photoPicker) Color.BLUE else Color.RED) }
+        val color = when (moveCase) {
+            "remove" -> Color.GREEN; "keep" -> Color.YELLOW; "changed" -> Color.MAGENTA
+            "missing" -> Color.CYAN; "corrupt" -> Color.GRAY; "duplicate" -> Color.DKGRAY
+            else -> if (photoPicker) Color.BLUE else Color.RED
+        }
+        val bitmap = Bitmap.createBitmap(96, 64, Bitmap.Config.ARGB_8888).apply { eraseColor(color) }
         val bytes = ByteArrayOutputStream().use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out); out.toByteArray() }
         bitmap.recycle()
         val expectedDigest = Base64.encodeToString(java.security.MessageDigest.getInstance("SHA-256").digest(bytes), Base64.NO_WRAP)
@@ -98,10 +103,18 @@ class PickerImportTest {
             val fixtureUri = "content://media/external_primary/downloads/$fixtureId"
             val written = shell("printf '%s' '${Base64.encodeToString(bytes, Base64.NO_WRAP)}' | base64 -d | content write --uri '$fixtureUri'")
             check(shell("test -s '$path' && echo SOURCE_READY").contains("SOURCE_READY")) { "Synthetic source was not written: $written" }
+            if (moveCase == "duplicate") {
+                val seed = java.io.File(compose.activity.cacheDir, "verified-duplicate-seed.png").apply { writeBytes(bytes) }
+                try {
+                    val copy = model.vault.importWithReceipt(android.net.Uri.fromFile(seed), null)
+                    model.vault.rename(copy.item.id, "Existing verified copy.png")
+                } finally { seed.delete() }
+            }
             dismissLauncherAnr()
             compose.onNodeWithText("Import files", useUnmergedTree = true).performClick()
-            compose.onNodeWithText(if (photoPicker) "Photos & videos" else "Documents & other files", useUnmergedTree = true).performClick()
-            awaitSystemPicker(if (photoPicker) "Photos & videos" else "Documents & other files")
+            val pickerLabel = if (moveCase != null) "Move to vault" else if (photoPicker) "Photos & videos" else "Documents & other files"
+            compose.onNodeWithText(pickerLabel, useUnmergedTree = true).performClick()
+            awaitSystemPicker(pickerLabel)
             // The regression: pausing/locking the app used to unregister the Compose launcher.
             assertFalse("Immediate background locking remains enabled", model.state.value.unlocked)
             if (!photoPicker) {
@@ -137,21 +150,58 @@ class PickerImportTest {
             // original filename. Identify this import by its verified content.
             compose.waitUntil(30000) { !model.state.value.busy && model.state.value.catalog.items.any { it.id !in beforeIds && it.digest == expectedDigest } }
             val item = model.state.value.catalog.items.first { it.id !in beforeIds && it.digest == expectedDigest }
-            if (!photoPicker) assertEquals(name, item.name)
+            if (!photoPicker && moveCase != "duplicate") assertEquals(name, item.name)
+            if (moveCase == "duplicate") assertTrue(model.state.value.message.orEmpty().contains("1 already in vault"))
             assertTrue(item.name.endsWith(".png"))
             assertEquals("Photos", item.category)
             assertArrayEquals(bytes, model.vault.reader(item).stream().use { it.readBytes() })
             val decoded = PrivateMedia.image(model.vault, item, 256)
-            assertEquals(if (photoPicker) Color.BLUE else Color.RED, decoded.getPixel(0, 0))
+            assertEquals(color, decoded.getPixel(0, 0))
             decoded.recycle()
             compose.runOnUiThread { model.message(null) }
-            compose.onNodeWithText(item.name, useUnmergedTree = true).performClick()
+            compose.onNodeWithText(item.name, useUnmergedTree = true).performScrollTo().performClick()
             compose.waitUntil(15000) { compose.onAllNodes(hasContentDescription(item.name)).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithContentDescription(item.name).assertIsDisplayed()
             // Original remains intact; import never removes it.
             assertTrue(shell("test -f '$path' && echo present").contains("present"))
             assertEquals(0, model.state.value.pendingImports)
             device.pressBack()
+            if (moveCase != null) {
+                assertEquals(listOf(name), model.state.value.removalNames)
+                if (moveCase == "changed") {
+                    val changed = bytes + byteArrayOf(0)
+                    shell("printf '%s' '${Base64.encodeToString(changed, Base64.NO_WRAP)}' | base64 -d | content write --uri '$fixtureUri'")
+                }
+                if (moveCase == "missing") {
+                    compose.runOnUiThread { model.delete(setOf(item.id)) }
+                    compose.waitUntil(15000) { !model.state.value.busy && model.state.value.catalog.items.none { it.id == item.id } }
+                    compose.runOnUiThread { model.message(null) }
+                }
+                if (moveCase == "corrupt") java.io.File(compose.activity.noBackupFilesDir, "vault/${item.id}.cv").appendBytes(byteArrayOf(0))
+                compose.onNodeWithText("Review originals", useUnmergedTree = true).performClick()
+                compose.onNodeWithText("• $name", useUnmergedTree = true).assertExists()
+                // Merely opening the confirmation must never delete anything.
+                assertTrue(shell("test -f '$path' && echo present").contains("present"))
+                if (moveCase == "keep") {
+                    compose.onNode(hasText("Keep originals") and hasAnyAncestor(isDialog()), useUnmergedTree = true).performClick()
+                } else compose.onNodeWithText("Remove originals", useUnmergedTree = true).performClick()
+                compose.waitUntil(30000) { !model.state.value.busy && model.state.value.removalNames.isEmpty() }
+                if (moveCase in listOf("remove", "duplicate")) {
+                    assertTrue(model.state.value.message.orEmpty().contains("1 originals removed"))
+                    assertTrue(shell("test ! -f '$path' && echo absent").contains("absent"))
+                    assertTrue(shell("content query --uri content://media/external_primary/images/media --projection _id --where \"_display_name='$name'\"").contains("No result found"))
+                    assertArrayEquals(bytes, model.vault.reader(item).stream().use { it.readBytes() })
+                } else {
+                    assertTrue(shell("test -f '$path' && echo present").contains("present"))
+                    if (moveCase != "keep") assertTrue(model.state.value.message.orEmpty().contains("No removal requested"))
+                }
+                compose.runOnUiThread { model.message(null) }
+                if (moveCase == "corrupt") {
+                    compose.runOnUiThread { model.delete(setOf(item.id)) }
+                    compose.waitUntil(15000) { !model.state.value.busy }
+                    compose.runOnUiThread { model.message(null) }
+                }
+            } else assertTrue(model.state.value.removalNames.isEmpty())
             compose.onNodeWithContentDescription("Lock vault").performClick()
         } catch (e: Throwable) {
             val hierarchy = ByteArrayOutputStream()
@@ -168,4 +218,10 @@ class PickerImportTest {
     }
     @Test fun documentsPickerReturnsAfterLockAndRecreationAndImportsVerifiedPhoto() = runPickerCase(false)
     @Test fun photoPickerReturnsAfterLockAndRecreationAndImportsVerifiedPhoto() = runPickerCase(true)
+    @Test fun moveRemovesOriginalFromSharedStorageOnlyAfterConfirmation() = runPickerCase(false, "remove")
+    @Test fun decliningMoveKeepsBothCopies() = runPickerCase(false, "keep")
+    @Test fun changedSourceIsNeverRemoved() = runPickerCase(false, "changed")
+    @Test fun missingVaultCopyPreventsOriginalRemoval() = runPickerCase(false, "missing")
+    @Test fun corruptedVaultCopyPreventsOriginalRemoval() = runPickerCase(false, "corrupt")
+    @Test fun existingVerifiedDuplicateCanBeMovedWithoutAnotherVaultCopy() = runPickerCase(false, "duplicate")
 }

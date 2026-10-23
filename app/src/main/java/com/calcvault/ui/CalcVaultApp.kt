@@ -10,7 +10,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.calcvault.data.BiometricGate
 
-@Composable fun CalcVaultApp(model: VaultViewModel, biometric: BiometricGate, onPickMedia: (String?) -> Unit, onPickFiles: (String?) -> Unit) {
+@Composable fun CalcVaultApp(model: VaultViewModel, biometric: BiometricGate, onPickMedia: (String?) -> Unit, onPickFiles: (String?) -> Unit, onPickMove: (String?) -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
     CalcVaultTheme(state.preferences.light) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -24,7 +24,7 @@ import com.calcvault.data.BiometricGate
                     state.concealed -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Calculator", style = MaterialTheme.typography.headlineSmall) }
                     state.unlocked && state.pinStage == 0 -> VaultScreen(model, state, onBiometric = {
                         biometric.request(true, null, model::biometricSaved, model::message)
-                    }, biometricAvailable = biometric.available(), onPickMedia = onPickMedia, onPickFiles = onPickFiles)
+                    }, biometricAvailable = biometric.available(), onPickMedia = onPickMedia, onPickFiles = onPickFiles, onPickMove = onPickMove)
                     else -> CalculatorScreen(state, model::key, model::startPinChange, model::cancelPin) {
                         runCatching { model.auth.biometricRecord() }.onSuccess {
                             biometric.request(false, it, { _, _ -> model.biometricUnlocked() }, model::message)

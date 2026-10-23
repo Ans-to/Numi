@@ -45,7 +45,7 @@ fun sizeLabel(bytes: Long): String = when {
 }
 private val previewSlots = Semaphore(2)
 
-@Composable fun VaultScreen(model: VaultViewModel, state: AppState, onBiometric: () -> Unit, biometricAvailable: Boolean, onPickMedia: (String?) -> Unit, onPickFiles: (String?) -> Unit) {
+@Composable fun VaultScreen(model: VaultViewModel, state: AppState, onBiometric: () -> Unit, biometricAvailable: Boolean, onPickMedia: (String?) -> Unit, onPickFiles: (String?) -> Unit, onPickMove: (String?) -> Unit) {
     var category by remember { mutableStateOf("All") }
     var query by remember { mutableStateOf("") }
     var sort by remember { mutableStateOf("Newest") }
@@ -89,6 +89,16 @@ private val previewSlots = Semaphore(2)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 12.dp)) {
                 items(listOf("All", "Photos", "Videos", "Files", "Folders")) { title -> FilterChip(selected = category == title,
                     onClick = { category = title; folder = null; selected = emptySet() }, label = { Text(title) }) }
+            }
+            if (state.removalNames.isNotEmpty()) Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("${state.removalNames.size} originals still outside the vault", fontWeight = FontWeight.Medium)
+                    Text("Verified vault copies are ready. Review before removing the originals from shared storage.", style = MaterialTheme.typography.bodySmall)
+                    Row {
+                        TextButton(onClick = { dialog = "remove-originals" }, enabled = !state.busy) { Text("Review originals") }
+                        TextButton(onClick = model::keepOriginals, enabled = !state.busy) { Text("Keep originals") }
+                    }
+                }
             }
             if (state.importProgress != null) Text(state.importProgress.orEmpty(), Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.primary)
             if (state.pendingImports > 0 && !state.busy) Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
@@ -139,10 +149,22 @@ private val previewSlots = Semaphore(2)
     }
     when (dialog) {
         "import" -> AlertDialog(onDismissRequest = { dialog = null }, title = { Text("Add to your private space") },
-            text = { Column { Text("Files are encrypted and verified before being added. Originals are never removed."); Spacer(Modifier.height(16.dp));
+            text = { Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) { Text("Copy to vault keeps your originals in Gallery or Files. Move to vault offers a separate removal confirmation after verification."); Spacer(Modifier.height(16.dp));
                 FilledTonalButton(onClick = { dialog = null; onPickMedia(folder) }, Modifier.fillMaxWidth()) { Text("Photos & videos") }
                 OutlinedButton(onClick = { dialog = null; onPickFiles(folder) }, Modifier.fillMaxWidth()) { Text("Documents & other files") }
+                FilledTonalButton(onClick = { dialog = null; onPickMove(folder) }, Modifier.fillMaxWidth()) { Text("Move to vault") }
+                Text("Move uses Android Files for write access. Some providers are read-only. Existing verified duplicates can also be moved.", style = MaterialTheme.typography.bodySmall)
                 Text("Your auto-lock setting still applies in the picker. After selecting files, enter your PIN again if locked; importing then starts automatically.", style = MaterialTheme.typography.bodySmall) } }, confirmButton = { TextButton(onClick = { dialog = null }) { Text("Cancel") } })
+        "remove-originals" -> AlertDialog(onDismissRequest = { dialog = null }, title = { Text("Remove these originals?") },
+            text = { Column(Modifier.heightIn(max = 340.dp).verticalScroll(rememberScrollState())) {
+                Text("The vault copies will be reverified before removal. This asks the selected file provider to delete the originals; it may be permanent and may also affect synced cloud files. Gallery trash, backups or other copies may remain.")
+                Spacer(Modifier.height(12.dp))
+                state.removalNames.forEach { Text("• $it") }
+                Spacer(Modifier.height(12.dp))
+                Text("Keep a separate secure backup. Uninstalling Calculator or clearing its data destroys the vault. No originals are removed unless you confirm below.")
+            } },
+            confirmButton = { TextButton(onClick = { dialog = null; model.removeOriginalsConfirmed() }, enabled = !state.busy && state.removalNames.isNotEmpty()) { Text("Remove originals") } },
+            dismissButton = { TextButton(onClick = { dialog = null; model.keepOriginals() }) { Text("Keep originals") } })
         "delete" -> AlertDialog(onDismissRequest = { dialog = null }, title = { Text("Permanently delete ${selected.size} items?") }, text = { Text("This removes the selected vault copies and their keys. There is no trash or undo. Originals outside the vault are not affected.") },
             confirmButton = { TextButton(onClick = { model.delete(selected); selected = emptySet(); dialog = null }) { Text("Delete permanently", color = MaterialTheme.colorScheme.error) } }, dismissButton = { TextButton(onClick = { dialog = null }) { Text("Cancel") } })
         "folder", "rename" -> AlertDialog(onDismissRequest = { dialog = null }, title = { Text(if (dialog == "folder") "New folder" else "Rename file") },

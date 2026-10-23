@@ -77,6 +77,19 @@ class VaultDeviceTest {
         assertEquals(before, repo.snapshot().items.map { it.id })
         repo.lock()
     }
+    @Test fun sourceRemovalNeverFallsBackToDeletingRawFilePaths() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val source = File(context.cacheDir, "non-document-source.txt").apply { writeText("Synthetic source") }
+        try {
+            val repo = VaultRepository(context, SecretStore(context))
+            val remover = com.calcvault.data.SourceRemoval(context, repo)
+            val uri = Uri.fromFile(source)
+            assertFalse(remover.supportsRemoval(uri))
+            val candidate = com.calcvault.data.SourceRemovalCandidate(uri, "not-a-real-item", "Synthetic source", "")
+            assertEquals(com.calcvault.data.SourceRemovalResult.UNSUPPORTED, remover.removeConfirmed(candidate) { true })
+            assertEquals("Synthetic source", source.readText())
+        } finally { source.delete() }
+    }
     @Test fun noNetworkOrStoragePermissionsAndBackupDisabled() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val info = context.packageManager.getPackageInfo(context.packageName, android.content.pm.PackageManager.GET_PERMISSIONS)

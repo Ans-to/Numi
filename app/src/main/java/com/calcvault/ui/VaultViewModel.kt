@@ -20,7 +20,7 @@ data class AppState(
     val unlocked: Boolean = false, val concealed: Boolean = false, val busy: Boolean = false,
     val input: String = "", val result: String = "0", val pinStage: Int = 0, val changingPin: Boolean = false,
     val preferences: Preferences = Preferences(), val catalog: Catalog = Catalog(),
-    val message: String? = null, val pendingImports: Int = 0, val viewingId: String? = null, val importProgress: String? = null
+    val message: String? = null, val pendingImports: Int = 0, val viewingId: String? = null, val importProgress: String? = null, val removalNames: List<String> = emptyList()
 )
 class VaultViewModel(application: Application) : AndroidViewModel(application) {
     private val mutable = MutableStateFlow(AppState())
@@ -30,13 +30,15 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     private val session = SessionClock()
     private var confirmation: CharArray? = null
     private var timeoutJob: Job? = null
-    private var epoch = 0
+    @Volatile private var epoch = 0
     private var backgrounded = false
     private var pending = emptyList<Uri>()
     private var importFolder: String? = null
     private var autoImport = false
     private var importReport: String? = null
-    private val heldReadGrants = mutableSetOf<Uri>()
+    private val heldReadGrants = mutableMapOf<Uri, Int>()
+    private var moveOriginals = false
+    private var removalCandidates = emptyList<SourceRemovalCandidate>()
     init {
         viewModelScope.launch {
             try {
@@ -136,7 +138,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         val catalog = withContext(Dispatchers.IO) { vault.unlock() }
         if (ticket != epoch || state.value.concealed) { vault.lock(); return }
         session.unlock()
-        mutable.update { it.copy(unlocked = true, input = "", result = "0", catalog = catalog, preferences = auth.preferences, message = listOfNotNull(vault.recoveryWarning, importReport).joinToString("\n\n").ifBlank { null }) }
+        mutable.update { it.copy(unlocked = true, input = "", result = "0", catalog = catalog, preferences = auth.preferences, removalNames = removalCandidates.map { it.name }, message = listOfNotNull(vault.recoveryWarning, importReport).joinToString("\n\n").ifBlank { null }) }
     }
     fun biometricUnlocked() {
         val ticket = epoch
@@ -151,7 +153,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     fun lock() {
         epoch++; timeoutJob?.cancel(); session.lock(); cancelPin()
         if (::vault.isInitialized) vault.lock()
-        mutable.update { it.copy(unlocked = false, input = "", result = "0", catalog = Catalog(), message = null, viewingId = null, importProgress = null) }
+        mutable.update { it.copy(unlocked = false, input = "", result = "0", catalog = Catalog(), message = null, viewingId = null, importProgress = null, removalNames = emptyList()) }
     }
     fun conceal() { mutable.update { it.copy(concealed = true) } }
     fun background() {
@@ -174,9 +176,14 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         tryStartPendingImports()
     }
     /** Called before launching the system picker; selection is explicit import consent. */
-    fun prepareImport(folder: String?): Boolean {
+    fun prepareImport(folder: String?, moveOriginals: Boolean = false): Boolean {
         if (!state.value.unlocked || state.value.busy) return false
+        if (removalCandidates.isNotEmpty()) {
+            message("Review the waiting originals or choose Keep originals before starting another import.")
+            return false
+        }
         discardImports()
+        this.moveOriginals = moveOriginals
         importFolder = folder
         // A translucent photo picker may pause us without ever calling onStop.
         // Start the configured lock timer when handing control to any picker.
@@ -188,10 +195,14 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         discardImports()
         pending = uris.distinct().take(100)
         pending.forEach { uri ->
-            if (uri.scheme == "content") runCatching {
-                getApplication<Application>().contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                heldReadGrants.add(uri)
-            } // Some providers only offer a transient read grant; that is sufficient now.
+            if (uri.scheme == "content") {
+                val resolver = getApplication<Application>().contentResolver
+                val read = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                val wanted = if (moveOriginals) read or Intent.FLAG_GRANT_WRITE_URI_PERMISSION else read
+                val granted = runCatching { resolver.takePersistableUriPermission(uri, wanted); wanted }
+                    .getOrElse { runCatching { resolver.takePersistableUriPermission(uri, read); read }.getOrDefault(0) }
+                if (granted != 0) heldReadGrants[uri] = granted
+            }
         }
         autoImport = pending.isNotEmpty()
         mutable.update { it.copy(pendingImports = pending.size) }
@@ -199,9 +210,8 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         tryStartPendingImports()
     }
     private fun releaseReadGrant(uri: Uri) {
-        if (heldReadGrants.remove(uri)) runCatching {
-            getApplication<Application>().contentResolver.releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
+        val flags = heldReadGrants.remove(uri) ?: return
+        runCatching { getApplication<Application>().contentResolver.releasePersistableUriPermission(uri, flags) }
     }
     fun discardImports() {
         pending.forEach(::releaseReadGrant)
@@ -216,6 +226,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         if (!state.value.unlocked || state.value.concealed || state.value.busy || pending.isEmpty()) return
         val selected = pending
         val folder = importFolder
+        val moving = moveOriginals
         val ticket = epoch
         pending = emptyList(); autoImport = false
         mutable.update { it.copy(busy = true, pendingImports = 0, message = null, importProgress = "Preparing import…") }
@@ -228,8 +239,16 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                     if (ticket == epoch && vault.unlocked) {
                         mutable.update { it.copy(importProgress = "Encrypting & verifying ${index + 1} of ${selected.size}…") }
                         try {
-                            if (withContext(Dispatchers.IO) { vault.import(uri, folder) }) imported++ else duplicates++
-                            releaseReadGrant(uri)
+                            val copy = withContext(Dispatchers.IO) { vault.importWithReceipt(uri, folder) }
+                            if (copy.added) imported++ else duplicates++
+                            val candidate = if (moving) withContext(Dispatchers.IO) {
+                                runCatching { SourceRemoval(getApplication(), vault).prepare(uri, copy) { vault.unlocked && ticket == epoch } }.getOrNull()
+                            } else null
+                            if (candidate != null) removalCandidates = removalCandidates + candidate
+                            else {
+                                releaseReadGrant(uri)
+                                if (moving) reasons += "File ${index + 1}: removal is not available. The provider may be read-only or the vault copy could not be reverified. Keep the original until you check the vault copy, then remove it manually in Gallery or Files."
+                            }
                         } catch (e: CancellationException) { throw e }
                         catch (e: Exception) {
                             failed += uri
@@ -240,9 +259,48 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                 pending = failed.toList() // Failed selections stay available for an explicit retry.
                 importReport = "$imported imported · $duplicates already in vault · ${failed.size} not imported. Originals are unchanged." +
                     if (reasons.isEmpty()) "" else "\n\n" + reasons.take(3).joinToString("\n\n") + if (reasons.size > 3) "\n\n${reasons.size - 3} more files could not be imported." else ""
-                mutable.update { it.copy(pendingImports = pending.size) }
+                if (removalCandidates.isNotEmpty()) importReport += "\n\n${removalCandidates.size} verified copies are ready. Use Review originals for a separate removal confirmation."
+                mutable.update { it.copy(pendingImports = pending.size, removalNames = if (it.unlocked) removalCandidates.map { c -> c.name } else emptyList()) }
                 if (ticket == epoch && state.value.unlocked) mutable.update { it.copy(catalog = vault.snapshot(), message = importReport) }
             } finally { mutable.update { it.copy(busy = false, importProgress = null) } }
+        }
+    }
+    fun keepOriginals() {
+        if (!state.value.unlocked || state.value.busy) return
+        removalCandidates.forEach { releaseReadGrant(it.uri) }
+        removalCandidates = emptyList()
+        mutable.update { it.copy(removalNames = emptyList()) }
+        message("Originals kept. The encrypted vault copies remain available.")
+    }
+    fun removeOriginalsConfirmed() {
+        val s = state.value
+        if (!s.unlocked || s.concealed || s.busy || removalCandidates.isEmpty()) return
+        val selected = removalCandidates
+        val ticket = epoch
+        mutable.update { it.copy(busy = true, message = null, importProgress = "Rechecking copies before removal…") }
+        viewModelScope.launch {
+            val outcomes = mutableListOf<Pair<SourceRemovalCandidate, SourceRemovalResult>>()
+            try {
+                val remover = SourceRemoval(getApplication(), vault)
+                selected.forEachIndexed { index, candidate ->
+                    mutable.update { it.copy(importProgress = "Rechecking original ${index + 1} of ${selected.size}…") }
+                    val outcome = withContext(Dispatchers.IO) {
+                        remover.removeConfirmed(candidate) { vault.unlocked && ticket == epoch }
+                    }
+                    outcomes += candidate to outcome
+                    // Do not silently retry requests whose provider result is ambiguous.
+                    if (outcome != SourceRemovalResult.INTERRUPTED) {
+                        removalCandidates = removalCandidates.filterNot { it.uri == candidate.uri }
+                        releaseReadGrant(candidate.uri)
+                    }
+                }
+                val removed = outcomes.count { it.second == SourceRemovalResult.REMOVED }
+                importReport = "$removed originals removed by the provider; ${selected.size - removed} not confirmed removed. Vault copies retained. Gallery refresh, trash and cloud copies are controlled by their providers." +
+                    outcomes.filter { it.second != SourceRemovalResult.REMOVED }.take(3).joinToString("", prefix = "\n\n") { "${it.first.name}: ${it.second.help}\n" }
+                if (state.value.unlocked) mutable.update { it.copy(message = importReport) }
+            } finally {
+                mutable.update { it.copy(busy = false, importProgress = null, removalNames = if (it.unlocked) removalCandidates.map { c -> c.name } else emptyList()) }
+            }
         }
     }
     fun rename(id: String, name: String) = operation { vault.rename(id, name); "Renamed." }
@@ -272,5 +330,5 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
             } finally { mutable.update { it.copy(busy = false) } }
         }
     }
-    override fun onCleared() { confirmation?.fill('\u0000'); if (::vault.isInitialized) vault.lock(); heldReadGrants.toList().forEach(::releaseReadGrant) }
+    override fun onCleared() { confirmation?.fill('\u0000'); if (::vault.isInitialized) vault.lock(); heldReadGrants.keys.toList().forEach(::releaseReadGrant) }
 }

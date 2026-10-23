@@ -103,7 +103,7 @@ import androidx.compose.ui.unit.sp
         }
     }
     if (about) AlertDialog(onDismissRequest = { about = false }, title = { Text("Calculator") },
-        text = { Text("Version 1.0.1\n\nAddition, subtraction, multiplication, division, parentheses and percentages. Percent means divide by 100.\n\nCalculations stay on this device. No calculation history is saved.") },
+        text = { Text("Version 1.0.2\n\nAddition, subtraction, multiplication, division, parentheses and percentages. Percent means divide by 100.\n\nCalculations stay on this device. No calculation history is saved.") },
         confirmButton = { TextButton(onClick = { about = false }) { Text("OK") } })
     if (setupInfo) AlertDialog(onDismissRequest = { setupInfo = false }, title = { Text("Set up private storage") },
         text = { Text("Choose a 6–12 digit PIN and confirm it. Later, type it on the calculator and press = to unlock. Calculator digits are visible, including your PIN as you enter it. Only this setup screen masks digits. There is no PIN recovery; keep separate originals of your files.") },

@@ -27,7 +27,7 @@ grep -q 'Status: ok' "$output/launch.txt"
 # UIAutomator waits for idle, then reads accessibility metadata on this disposable device.
 adb shell uiautomator dump /sdcard/calc-vault-smoke.xml
 adb pull /sdcard/calc-vault-smoke.xml "$output/window.xml"
-grep -q 'CALCULATOR' "$output/window.xml"
+grep -q 'More options' "$output/window.xml"
 adb logcat -d -b crash > "$output/crashes.txt"
 if grep -q 'com.calcvault' "$output/crashes.txt"; then echo 'Release process crashed.' >&2; exit 1; fi
 rm "$output/release-smoke.apk"

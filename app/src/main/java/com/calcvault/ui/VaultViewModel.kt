@@ -2,6 +2,7 @@ package com.calcvault.ui
 
 import android.app.Application
 import android.net.Uri
+import android.content.Intent
 import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -19,7 +20,7 @@ data class AppState(
     val unlocked: Boolean = false, val concealed: Boolean = false, val busy: Boolean = false,
     val input: String = "", val result: String = "0", val pinStage: Int = 0, val changingPin: Boolean = false,
     val preferences: Preferences = Preferences(), val catalog: Catalog = Catalog(),
-    val message: String? = null, val pendingImports: Int = 0, val viewingId: String? = null
+    val message: String? = null, val pendingImports: Int = 0, val viewingId: String? = null, val importProgress: String? = null
 )
 class VaultViewModel(application: Application) : AndroidViewModel(application) {
     private val mutable = MutableStateFlow(AppState())
@@ -31,6 +32,10 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     private var timeoutJob: Job? = null
     private var epoch = 0
     private var pending = emptyList<Uri>()
+    private var importFolder: String? = null
+    private var autoImport = false
+    private var importReport: String? = null
+    private val heldReadGrants = mutableSetOf<Uri>()
     init {
         viewModelScope.launch {
             try {
@@ -45,7 +50,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     fun view(id: String?) { mutable.update { it.copy(viewingId = id) } }
-    fun message(text: String?) { mutable.update { it.copy(message = text) } }
+    fun message(text: String?) { if (text == null) importReport = null; mutable.update { it.copy(message = text) } }
     fun key(key: String) {
         if (state.value.busy || state.value.fatal) return
         if (key == "=") { equals(); return }
@@ -91,14 +96,15 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                 if (ticket != epoch || state.value.concealed) return@launch
                 when (attempt) {
                     UnlockResult.Open -> openVault(ticket)
-                    is UnlockResult.Delayed -> { mutable.update { it.copy(input = "", result = "0") }; message("Please wait ${attempt.seconds} seconds before another PIN-length entry. Other calculations are available.") }
-                    UnlockResult.Calculate -> {
+                    // Throttling only prevents unlock checks, never ordinary arithmetic.
+                    // Do not announce vault/PIN information on the calculator screen.
+                    is UnlockResult.Delayed, UnlockResult.Calculate -> {
                         val result = runCatching { Calculator.evaluate(expression) }.getOrElse { "Invalid calculation" }
                         mutable.update { it.copy(input = "", result = result) }
                     }
                 }
             } catch (_: Exception) { message("Authentication or storage could not be verified. Nothing was erased.") }
-            finally { pin.fill('\u0000'); mutable.update { it.copy(busy = false) } }
+            finally { pin.fill('\u0000'); mutable.update { it.copy(busy = false) }; tryStartPendingImports() }
         }
     }
     private fun setupPin() {
@@ -122,14 +128,14 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
                 mutable.update { it.copy(configured = true, pinStage = 0, changingPin = false) }
                 if (ticket == epoch) message(if (s.changingPin) "PIN changed." else "PIN saved. Enter it on the keypad and press = to unlock. There is no PIN recovery.")
             } catch (_: Exception) { message("PIN could not be saved. Please try again."); cancelPin() }
-            finally { pin.fill('\u0000'); mutable.update { it.copy(busy = false) } }
+            finally { pin.fill('\u0000'); mutable.update { it.copy(busy = false) }; tryStartPendingImports() }
         }
     }
     private suspend fun openVault(ticket: Int) {
         val catalog = withContext(Dispatchers.IO) { vault.unlock() }
         if (ticket != epoch || state.value.concealed) { vault.lock(); return }
         session.unlock()
-        mutable.update { it.copy(unlocked = true, input = "", result = "0", catalog = catalog, preferences = auth.preferences, message = vault.recoveryWarning) }
+        mutable.update { it.copy(unlocked = true, input = "", result = "0", catalog = catalog, preferences = auth.preferences, message = listOfNotNull(vault.recoveryWarning, importReport).joinToString("\n\n").ifBlank { null }) }
     }
     fun biometricUnlocked() {
         val ticket = epoch
@@ -138,13 +144,13 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
             mutable.update { it.copy(busy = true) }
             try { withContext(Dispatchers.IO) { auth.resetAttempts() }; openVault(ticket) }
             catch (_: Exception) { message("The vault could not be opened. Use your PIN; encrypted files have been preserved.") }
-            finally { mutable.update { it.copy(busy = false) } }
+            finally { mutable.update { it.copy(busy = false) }; tryStartPendingImports() }
         }
     }
     fun lock() {
         epoch++; timeoutJob?.cancel(); session.lock(); cancelPin()
         if (::vault.isInitialized) vault.lock()
-        mutable.update { it.copy(unlocked = false, input = "", result = "0", catalog = Catalog(), message = null, viewingId = null) }
+        mutable.update { it.copy(unlocked = false, input = "", result = "0", catalog = Catalog(), message = null, viewingId = null, importProgress = null) }
     }
     fun conceal() { mutable.update { it.copy(concealed = true) } }
     fun background() {
@@ -161,24 +167,75 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         session.foreground(SystemClock.elapsedRealtime(), state.value.preferences.lockSeconds * 1000L)
         if (state.value.unlocked && !session.unlocked) lock()
         mutable.update { it.copy(concealed = false) }
+        tryStartPendingImports()
+    }
+    /** Called before launching the system picker; selection is explicit import consent. */
+    fun prepareImport(folder: String?): Boolean {
+        if (!state.value.unlocked || state.value.busy) return false
+        discardImports()
+        importFolder = folder
+        return true
     }
     fun receiveImports(uris: List<Uri>) {
-        pending = uris.take(100)
+        // This callback is Activity-owned and survives the calculator/vault UI switching.
+        discardImports()
+        pending = uris.distinct().take(100)
+        pending.forEach { uri ->
+            if (uri.scheme == "content") runCatching {
+                getApplication<Application>().contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                heldReadGrants.add(uri)
+            } // Some providers only offer a transient read grant; that is sufficient now.
+        }
+        autoImport = pending.isNotEmpty()
         mutable.update { it.copy(pendingImports = pending.size) }
-        if (uris.size > 100) message("Select up to 100 files at a time.")
+        if (uris.size > 100) importReport = "Only the first 100 selected files will be imported. Select the rest in another batch."
+        tryStartPendingImports()
     }
-    fun discardImports() { pending = emptyList(); mutable.update { it.copy(pendingImports = 0) } }
-    fun importPending(folder: String?) {
-        if (!state.value.unlocked || state.value.busy) return
-        val selected = pending; discardImports()
-        operation {
-            var imported = 0; var duplicates = 0; var failed = 0
-            selected.forEach { uri ->
-                if (vault.unlocked) try { if (vault.import(uri, folder)) imported++ else duplicates++ } catch (_: Exception) { failed++ }
-                else failed++
-            }
-            "$imported imported · $duplicates duplicates skipped · $failed not imported. Originals are unchanged." +
-                if (failed > 0) " Check available storage and source access, then select those files again." else ""
+    private fun releaseReadGrant(uri: Uri) {
+        if (heldReadGrants.remove(uri)) runCatching {
+            getApplication<Application>().contentResolver.releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+    fun discardImports() {
+        pending.forEach(::releaseReadGrant)
+        pending = emptyList(); autoImport = false; importReport = null
+        mutable.update { it.copy(pendingImports = 0) }
+    }
+    private fun tryStartPendingImports() {
+        val s = state.value
+        if (autoImport && s.ready && s.unlocked && !s.concealed && !s.busy && pending.isNotEmpty()) importPending()
+    }
+    fun importPending() {
+        if (!state.value.unlocked || state.value.concealed || state.value.busy || pending.isEmpty()) return
+        val selected = pending
+        val folder = importFolder
+        val ticket = epoch
+        pending = emptyList(); autoImport = false
+        mutable.update { it.copy(busy = true, pendingImports = 0, message = null, importProgress = "Preparing import…") }
+        viewModelScope.launch {
+            var imported = 0; var duplicates = 0
+            val failed = mutableListOf<Uri>()
+            val reasons = mutableListOf<String>()
+            try {
+                selected.forEachIndexed { index, uri ->
+                    if (ticket == epoch && vault.unlocked) {
+                        mutable.update { it.copy(importProgress = "Encrypting & verifying ${index + 1} of ${selected.size}…") }
+                        try {
+                            if (withContext(Dispatchers.IO) { vault.import(uri, folder) }) imported++ else duplicates++
+                            releaseReadGrant(uri)
+                        } catch (e: CancellationException) { throw e }
+                        catch (e: Exception) {
+                            failed += uri
+                            reasons += "File ${index + 1}: " + (if (ticket != epoch) ImportProblem.INTERRUPTED else (e as? VaultImportException)?.problem ?: ImportProblem.WRITE).help
+                        }
+                    } else { failed += uri; reasons += "File ${index + 1}: ${ImportProblem.INTERRUPTED.help}" }
+                }
+                pending = failed.toList() // Failed selections stay available for an explicit retry.
+                importReport = "$imported imported · $duplicates already in vault · ${failed.size} not imported. Originals are unchanged." +
+                    if (reasons.isEmpty()) "" else "\n\n" + reasons.take(3).joinToString("\n\n") + if (reasons.size > 3) "\n\n${reasons.size - 3} more files could not be imported." else ""
+                mutable.update { it.copy(pendingImports = pending.size) }
+                if (ticket == epoch && state.value.unlocked) mutable.update { it.copy(catalog = vault.snapshot(), message = importReport) }
+            } finally { mutable.update { it.copy(busy = false, importProgress = null) } }
         }
     }
     fun rename(id: String, name: String) = operation { vault.rename(id, name); "Renamed." }
@@ -208,5 +265,5 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
             } finally { mutable.update { it.copy(busy = false) } }
         }
     }
-    override fun onCleared() { confirmation?.fill('\u0000'); if (::vault.isInitialized) vault.lock() }
+    override fun onCleared() { confirmation?.fill('\u0000'); if (::vault.isInitialized) vault.lock(); heldReadGrants.toList().forEach(::releaseReadGrant) }
 }

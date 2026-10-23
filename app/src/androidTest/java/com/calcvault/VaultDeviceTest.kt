@@ -62,6 +62,21 @@ class VaultDeviceTest {
             reopened.lock()
         } finally { source.delete(); pin.fill('\u0000') }
     }
+    @Test fun missingSourceHasActionableErrorAndDoesNotPublishAnItem() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val secrets = SecretStore(context)
+        val auth = AuthRepository(secrets)
+        if (!auth.configured) auth.setup("381729".toCharArray())
+        val repo = VaultRepository(context, secrets)
+        val before = repo.unlock().items.map { it.id }
+        val missing = Uri.fromFile(File(context.cacheDir, "missing-source-${System.nanoTime()}.png"))
+        val error = runCatching { repo.import(missing, null) }.exceptionOrNull()
+        assertTrue(error is com.calcvault.data.VaultImportException)
+        assertEquals(com.calcvault.data.ImportProblem.UNAVAILABLE, (error as com.calcvault.data.VaultImportException).problem)
+        assertFalse(error.message.orEmpty().contains(context.cacheDir.path))
+        assertEquals(before, repo.snapshot().items.map { it.id })
+        repo.lock()
+    }
     @Test fun noNetworkOrStoragePermissionsAndBackupDisabled() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val info = context.packageManager.getPackageInfo(context.packageName, android.content.pm.PackageManager.GET_PERMISSIONS)

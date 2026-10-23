@@ -61,19 +61,35 @@ class VaultRepository(private val context: Context, private val secrets: SecretS
     fun import(uri: Uri, folder: String?): Boolean {
         val ticket = synchronized(guard) { check(unlocked); generation }
         val resolver = context.contentResolver
-        val rawName = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
-            if (it.moveToFirst()) it.getString(0) else null
-        } ?: "Imported file"
+        // DISPLAY_NAME and MIME are optional provider metadata, not prerequisites for reading.
+        val rawName = runCatching {
+            resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+                val column = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (column >= 0 && it.moveToFirst()) it.getString(column) else null
+            }
+        }.getOrNull() ?: "Imported file"
         val sanitized = rawName.filterNot { it.isISOControl() || it == '/' || it == '\\' }.take(160).trim()
         val name = sanitized.takeIf(ImportTransaction::validName) ?: "Imported file"
-        val mime = resolver.getType(uri) ?: "application/octet-stream"
-        val prepared = checkNotNull(resolver.openInputStream(uri)) { "Cannot read the selected file" }.use {
-            ImportTransaction.prepare(root, it) { !unlocked || generation != ticket || Thread.currentThread().isInterrupted }
+        val mime = runCatching { resolver.getType(uri) }.getOrNull()
+            ?: java.net.URLConnection.guessContentTypeFromName(name) ?: "application/octet-stream"
+        val input = try { resolver.openInputStream(uri) ?: throw VaultImportException(ImportProblem.UNAVAILABLE) }
+            catch (e: Exception) { throw VaultImportException(importProblem(e, ImportProblem.READ), e) }
+        val prepared = try {
+            input.use { ImportTransaction.prepare(root, it) { !unlocked || generation != ticket || Thread.currentThread().isInterrupted } }
+        } catch (e: Exception) {
+            throw VaultImportException(if (!unlocked || generation != ticket) ImportProblem.INTERRUPTED else importProblem(e, ImportProblem.READ), e)
         }
         try {
             // Persist the ciphertext directory entry before publishing it in the catalog.
             val fd = android.system.Os.open(root.path, android.system.OsConstants.O_RDONLY, 0)
-            try { android.system.Os.fsync(fd) } finally { android.system.Os.close(fd) }
+            try {
+                try { android.system.Os.fsync(fd) }
+                catch (e: android.system.ErrnoException) {
+                    // Some Android filesystems do not support directory fsync. File contents
+                    // are already synced and fully verified; do not reject every import there.
+                    if (e.errno !in listOf(android.system.OsConstants.EINVAL, android.system.OsConstants.ENOSYS, android.system.OsConstants.EOPNOTSUPP)) throw e
+                }
+            } finally { android.system.Os.close(fd) }
             synchronized(guard) {
                 check(unlocked && generation == ticket) { "Vault locked during import. Original is unchanged." }
                 if (catalog.items.any { it.digest == prepared.digest.b64() }) { prepared.file.delete(); return false }
@@ -84,7 +100,7 @@ class VaultRepository(private val context: Context, private val secrets: SecretS
         } catch (e: Exception) {
             // A failed metadata commit can have an ambiguous durability outcome. Preserve ciphertext,
             // rather than risk deleting a file referenced by a successfully committed catalog.
-            throw e
+            throw VaultImportException(if (!unlocked || generation != ticket) ImportProblem.INTERRUPTED else importProblem(e, ImportProblem.COMMIT), e)
         }
         return true
     }

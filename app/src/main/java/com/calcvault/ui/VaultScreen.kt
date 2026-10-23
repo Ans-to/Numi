@@ -3,9 +3,6 @@ package com.calcvault.ui
 
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -48,7 +45,7 @@ fun sizeLabel(bytes: Long): String = when {
 }
 private val previewSlots = Semaphore(2)
 
-@Composable fun VaultScreen(model: VaultViewModel, state: AppState, onBiometric: () -> Unit, biometricAvailable: Boolean) {
+@Composable fun VaultScreen(model: VaultViewModel, state: AppState, onBiometric: () -> Unit, biometricAvailable: Boolean, onPickMedia: (String?) -> Unit, onPickFiles: (String?) -> Unit) {
     var category by remember { mutableStateOf("All") }
     var query by remember { mutableStateOf("") }
     var sort by remember { mutableStateOf("Newest") }
@@ -57,8 +54,6 @@ private val previewSlots = Semaphore(2)
     val viewing = state.catalog.items.find { it.id == state.viewingId }
     var dialog by remember { mutableStateOf<String?>(null) }
     var text by remember { mutableStateOf("") }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(100), model::receiveImports)
-    val files = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments(), model::receiveImports)
     val filtered = remember(state.catalog, query, category, folder, sort) {
         val matches = state.catalog.items.filter { (category == "All" || category == "Folders" || it.category == category) &&
             (folder == null || it.folder == folder) && it.name.contains(query, true) }
@@ -95,11 +90,12 @@ private val previewSlots = Semaphore(2)
                 items(listOf("All", "Photos", "Videos", "Files", "Folders")) { title -> FilterChip(selected = category == title,
                     onClick = { category = title; folder = null; selected = emptySet() }, label = { Text(title) }) }
             }
-            if (state.pendingImports > 0) Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+            if (state.importProgress != null) Text(state.importProgress.orEmpty(), Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.primary)
+            if (state.pendingImports > 0 && !state.busy) Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                 Column(Modifier.padding(12.dp)) {
-                    Text("${state.pendingImports} selected files are ready", fontWeight = FontWeight.Medium)
-                    Text("Import into the current folder. Your originals will not be deleted.", style = MaterialTheme.typography.bodySmall)
-                    Row { TextButton(onClick = { model.importPending(folder) }, enabled = !state.busy) { Text("Encrypt & import") }; TextButton(onClick = model::discardImports) { Text("Discard selection") } }
+                    Text("${state.pendingImports} files are waiting to be imported", fontWeight = FontWeight.Medium)
+                    Text("Retry the selected files. Your originals have not been removed.", style = MaterialTheme.typography.bodySmall)
+                    Row { TextButton(onClick = { model.importPending() }, enabled = !state.busy) { Text("Retry import") }; TextButton(onClick = model::discardImports) { Text("Discard selection") } }
                 }
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -144,9 +140,9 @@ private val previewSlots = Semaphore(2)
     when (dialog) {
         "import" -> AlertDialog(onDismissRequest = { dialog = null }, title = { Text("Add to your private space") },
             text = { Column { Text("Files are encrypted and verified before being added. Originals are never removed."); Spacer(Modifier.height(16.dp));
-                FilledTonalButton(onClick = { dialog = null; picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }, Modifier.fillMaxWidth()) { Text("Photos & videos") }
-                OutlinedButton(onClick = { dialog = null; files.launch(arrayOf("*/*")) }, Modifier.fillMaxWidth()) { Text("Documents & other files") }
-                Text("Leaving the app follows your auto-lock setting. Unlock again to finish importing if prompted.", style = MaterialTheme.typography.bodySmall) } }, confirmButton = { TextButton(onClick = { dialog = null }) { Text("Cancel") } })
+                FilledTonalButton(onClick = { dialog = null; onPickMedia(folder) }, Modifier.fillMaxWidth()) { Text("Photos & videos") }
+                OutlinedButton(onClick = { dialog = null; onPickFiles(folder) }, Modifier.fillMaxWidth()) { Text("Documents & other files") }
+                Text("Your auto-lock setting still applies in the picker. After selecting files, enter your PIN again if locked; importing then starts automatically.", style = MaterialTheme.typography.bodySmall) } }, confirmButton = { TextButton(onClick = { dialog = null }) { Text("Cancel") } })
         "delete" -> AlertDialog(onDismissRequest = { dialog = null }, title = { Text("Permanently delete ${selected.size} items?") }, text = { Text("This removes the selected vault copies and their keys. There is no trash or undo. Originals outside the vault are not affected.") },
             confirmButton = { TextButton(onClick = { model.delete(selected); selected = emptySet(); dialog = null }) { Text("Delete permanently", color = MaterialTheme.colorScheme.error) } }, dismissButton = { TextButton(onClick = { dialog = null }) { Text("Cancel") } })
         "folder", "rename" -> AlertDialog(onDismissRequest = { dialog = null }, title = { Text(if (dialog == "folder") "New folder" else "Rename file") },
@@ -221,7 +217,7 @@ private val previewSlots = Semaphore(2)
             HorizontalDivider()
             Text("Your files stay on this device", fontWeight = FontWeight.Medium)
             Text("No account, network access, analytics, or cloud backup. Uninstalling, clearing app data, or losing the encryption key permanently loses vault access. Keep separate originals. A compromised or rooted device can defeat app protections. External originals are not protected by this vault.", style = MaterialTheme.typography.bodySmall)
-            Text("PIN-length numbers are masked until evaluated. Percent means divide by 100. To calculate your PIN as a number without unlocking, use parentheses or add +0.", style = MaterialTheme.typography.bodySmall)
+            Text("Calculator numbers are visible as you type, including a PIN entered to unlock. Percent means divide by 100. To calculate your PIN as a number without unlocking, use parentheses or add +0.", style = MaterialTheme.typography.bodySmall)
         }
     }, confirmButton = { TextButton(onClick = close) { Text("Done") } })
 }

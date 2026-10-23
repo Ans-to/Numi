@@ -86,16 +86,16 @@ class PickerImportTest {
         bitmap.recycle()
         // Shell creates the source, not the app. Reading the returned document relies on
         // the system picker's content URI grant. This is synthetic data on a disposable emulator.
-        val inserted = shell("content insert --uri content://media/external_primary/downloads --bind _display_name:s:$name --bind mime_type:s:image/png --bind relative_path:s:Download/ --bind is_pending:i:1")
-        // Android's content insert deliberately prints no URI. Resolve the actual
-        // row from a query rather than treating empty stdout as insertion failure.
-        val rows = shell("content query --uri content://media/external_primary/downloads --projection _id --where \"_display_name='$name'\"")
-        val fixtureId = checkNotNull(Regex("_id=(\\d+)").find(rows)?.groupValues?.get(1)) { "Fixture insertion failed: $inserted $rows" }
-        val fixtureUri = "content://media/external_primary/downloads/$fixtureId"
-        shell("printf '%s' '${Base64.encodeToString(bytes, Base64.NO_WRAP)}' | base64 -d | content write --uri '$fixtureUri'; content update --uri '$fixtureUri' --bind is_pending:i:0")
-        check(shell("test -s '$path' && echo SOURCE_READY").contains("SOURCE_READY")) { "Synthetic source was not written" }
-
         try {
+            // Publish before querying the collection: its default query excludes
+            // pending rows, even though the shell just inserted them. No picker
+            // is opened until the complete fixture bytes have been written.
+            val inserted = shell("content insert --uri content://media/external_primary/downloads --bind _display_name:s:$name --bind mime_type:s:image/png --bind relative_path:s:Download/ --bind is_pending:i:0")
+            val rows = shell("content query --uri content://media/external_primary/downloads --projection _id --where \"_display_name='$name'\"")
+            val fixtureId = checkNotNull(Regex("_id=(\\d+)").find(rows)?.groupValues?.get(1)) { "Fixture insertion failed: $inserted $rows" }
+            val fixtureUri = "content://media/external_primary/downloads/$fixtureId"
+            val written = shell("printf '%s' '${Base64.encodeToString(bytes, Base64.NO_WRAP)}' | base64 -d | content write --uri '$fixtureUri'")
+            check(shell("test -s '$path' && echo SOURCE_READY").contains("SOURCE_READY")) { "Synthetic source was not written: $written" }
             dismissLauncherAnr()
             compose.onNodeWithText("Import files", useUnmergedTree = true).performClick()
             compose.onNodeWithText(if (photoPicker) "Photos & videos" else "Documents & other files", useUnmergedTree = true).performClick()
@@ -157,7 +157,7 @@ class PickerImportTest {
                 .joinToString("\n").take(7000)
             throw AssertionError("${e.message}\nImport state: ${model.state.value.message}\nSynthetic test picker UI: $nodes", e)
         } finally {
-            shell("content delete --uri '$fixtureUri'; rm -f '$path'")
+            shell("content delete --uri content://media/external_primary/downloads --where \"_display_name='$name'\"; rm -f '$path'")
         }
     }
     @Test fun documentsPickerReturnsAfterLockAndRecreationAndImportsVerifiedPhoto() = runPickerCase(false)

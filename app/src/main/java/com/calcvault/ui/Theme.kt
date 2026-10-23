@@ -19,6 +19,12 @@ private val Light = lightColorScheme(primary = Color(0xFF48642E), background = C
     val view = LocalView.current
     if (!view.isInEditMode) SideEffect {
         (view.context as? Activity)?.window?.let { window ->
+            // API 26–28 otherwise keep the system-theme navigation scrim while
+            // our icons follow the app theme. Draw the app surface underneath.
+            if (android.os.Build.VERSION.SDK_INT < 35) {
+                @Suppress("DEPRECATION")
+                window.navigationBarColor = android.graphics.Color.TRANSPARENT
+            }
             WindowCompat.getInsetsController(window, view).apply {
                 isAppearanceLightStatusBars = light
                 isAppearanceLightNavigationBars = light

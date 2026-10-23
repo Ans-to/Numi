@@ -56,8 +56,8 @@ class PickerImportTest {
         // the system picker's content URI grant. This is synthetic data on a disposable emulator.
         shell("mkdir -p /sdcard/Download; printf '%s' '${Base64.encodeToString(bytes, Base64.NO_WRAP)}' | base64 -d > '$path'; am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d 'file://$path'")
         try {
-            compose.onNodeWithText("Import files").performClick()
-            compose.onNodeWithText(if (photoPicker) "Photos & videos" else "Documents & other files").performClick()
+            compose.onNodeWithText("Import files", useUnmergedTree = true).performClick()
+            compose.onNodeWithText(if (photoPicker) "Photos & videos" else "Documents & other files", useUnmergedTree = true).performClick()
             assertTrue("System picker must actually be foreground", device.wait(Until.hasObject(By.pkg(Pattern.compile(".*(documentsui|media.module).*"))), 20000))
             // The regression: pausing/locking the app used to unregister the Compose launcher.
             assertFalse("Immediate background locking remains enabled", model.state.value.unlocked)
@@ -98,7 +98,7 @@ class PickerImportTest {
             assertEquals(if (photoPicker) Color.BLUE else Color.RED, decoded.getPixel(0, 0))
             decoded.recycle()
             compose.runOnUiThread { model.message(null) }
-            compose.onNodeWithText(name).performClick()
+            compose.onNodeWithText(name, useUnmergedTree = true).performClick()
             compose.waitUntil(15000) { compose.onAllNodes(hasContentDescription(name)).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithContentDescription(name).assertIsDisplayed()
             // Original remains intact; import never removes it.
@@ -109,7 +109,12 @@ class PickerImportTest {
         } catch (e: AssertionError) {
             val hierarchy = ByteArrayOutputStream()
             runCatching { device.dumpWindowHierarchy(hierarchy) }
-            throw AssertionError("${e.message}\nSynthetic test picker UI: ${hierarchy.toString().take(14000)}", e)
+            val nodes = Regex("<node [^>]+>").findAll(hierarchy.toString())
+                .map { it.value }.filter { !it.contains("package=\"com.android.systemui\"") }
+                .map { node -> Regex("(?:text|resource-id|package|content-desc|bounds)=\"[^\"]+\"").findAll(node).joinToString(" ") { it.value } }
+                .filter { it.contains("text=") || it.contains("content-desc=") || it.contains("resource-id=") }
+                .joinToString("\n").take(7000)
+            throw AssertionError("${e.message}\nSynthetic test picker UI: $nodes", e)
         } finally {
             shell("rm -f '$path'; content delete --uri content://media/external/images/media --where \"_display_name='$name'\"")
         }

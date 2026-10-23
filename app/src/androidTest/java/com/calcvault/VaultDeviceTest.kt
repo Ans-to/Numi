@@ -66,6 +66,7 @@ class VaultDeviceTest {
         val info = context.packageManager.getPackageInfo(context.packageName, android.content.pm.PackageManager.GET_PERMISSIONS)
         assertFalse(info.requestedPermissions.orEmpty().contains("android.permission.INTERNET"))
         assertFalse(info.requestedPermissions.orEmpty().contains("android.permission.READ_EXTERNAL_STORAGE"))
+        assertFalse(info.requestedPermissions.orEmpty().contains("android.permission.WAKE_LOCK"))
         assertEquals(0, context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_ALLOW_BACKUP)
     }
 }

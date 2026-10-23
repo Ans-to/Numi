@@ -6,7 +6,8 @@ count=0
 for variant in debug release; do
   for file in app/build/outputs/apk/"$variant"/*.apk; do
     [ -f "$file" ] || continue
-    cp "$file" "artifacts/apk/calc-vault-${file##*/}"
+    name="${file##*/}"
+    cp "$file" "artifacts/apk/calc-vault-${name#app-}"
     count=$((count+1))
   done
 done

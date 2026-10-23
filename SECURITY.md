@@ -18,6 +18,8 @@ Intended protection: someone casually using the calculator, another unprivileged
 
 ## Chunked authenticated file format (version 1)
 
+Ciphertext file counts and lengths are not padded or hidden; someone with access to the encrypted directory can infer these even without decrypting the catalog. This is encryption, not filesystem steganography.
+
 All integers are big endian. Each ciphertext file is named `<UUID>.cv`, independent of the source name, under `noBackupFilesDir/vault`.
 
 ```text

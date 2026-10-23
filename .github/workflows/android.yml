@@ -2,7 +2,7 @@ name: Android verification
 on:
   workflow_dispatch:
   push:
-    branches: [arena/d236bb71-numi]
+    branches: [arena/d236bb71-numi, arena/ba993319-numi]
   pull_request:
 permissions:
   contents: read

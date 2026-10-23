@@ -92,6 +92,8 @@ object ChunkCipher {
                 val n = source.readInt()
                 require(n == minOf(CHUNK.toLong(), size - index.toLong() * CHUNK).toInt()) { "Invalid chunk length" }
                 val encrypted = ByteArray(n + 16); source.readFully(encrypted)
+                // A failed authentication must not leave zeroed bytes marked as a valid cached chunk.
+                cachedIndex = -1
                 cached.fill(0)
                 cached = cipher(Cipher.DECRYPT_MODE, key, header, id, index, n).doFinal(encrypted)
                 cachedIndex = index

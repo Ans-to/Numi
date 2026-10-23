@@ -105,6 +105,17 @@ object SecurityChecks {
                     rejected { reader.read(ChunkCipher.CHUNK.toLong(), ByteArray(32), 0, 32) }
                 }
             }
+            scenario("cached authentic bytes remain correct after a different chunk fails authentication") {
+                altered.writeBytes(largeWire.copyOf().also { val p = 20 + frame + 9; it[p] = (it[p].toInt() xor 1).toByte() })
+                ChunkCipher.Reader(altered, large.key, large.id, large.size).use { reader ->
+                    val prefix = ByteArray(32)
+                    check(reader.read(0, prefix, 0, prefix.size) == prefix.size)
+                    rejected { reader.read(ChunkCipher.CHUNK.toLong(), ByteArray(32), 0, 32) }
+                    prefix.fill(0x7f)
+                    check(reader.read(0, prefix, 0, prefix.size) == prefix.size)
+                    check(prefix.contentEquals(largePlain.copyOf(32))) { "Authentication failure left a zeroed cache marked valid" }
+                }
+            }
             scenario("128 repeated imports have distinct sampled AES-256 keys, IDs and ciphertext") {
                 val keys = mutableSetOf<String>(); val ids = mutableSetOf<String>(); val hashes = mutableSetOf<String>()
                 repeat(128) {
@@ -123,7 +134,7 @@ object SecurityChecks {
                 while (now < 86_400_000L) { policy = policy.reserve(now); attempts++; now = policy.deadline }
                 check(attempts < 400)
                 check(policy.remaining(policy.recordedAt) > 0)
-                check(policy.remaining(policy.deadline + 1) == 0)
+                check(policy.remaining(policy.deadline + 1) == 0L)
                 println("SIMULATION virtual_24h_allowed_attempts=$attempts; forward jump to deadline permits another attempt; not a hardware rate limiter")
             }
             scenario("bounded offline guessing succeeds IF synthetic verifier and salt are already extracted") {

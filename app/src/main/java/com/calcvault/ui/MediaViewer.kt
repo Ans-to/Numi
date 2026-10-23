@@ -113,7 +113,16 @@ import kotlinx.coroutines.withContext
             prepare(); playWhenReady = false
         }
     }
-    DisposableEffect(player) { onDispose { player.stop(); player.release() } }
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(player, lifecycle) {
+        // Pause synchronously on lifecycle loss, even when backgrounding prevents another
+        // Compose frame. Buffered audio must not outlive the concealed/locked vault UI.
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE || event == androidx.lifecycle.Lifecycle.Event.ON_STOP) player.pause()
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer); player.stop(); player.release() }
+    }
     if (failed) ViewerError("Video cannot be played", "This device may not support the codec, or the encrypted file may be damaged. Your file has not been changed.")
     else Column(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxWidth().weight(1f)) {

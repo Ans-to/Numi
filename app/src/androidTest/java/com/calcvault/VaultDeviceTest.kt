@@ -33,6 +33,7 @@ class VaultDeviceTest {
         assertTrue(AuthRepository(SecretStore(context)).attempt(pin) is UnlockResult.Open)
         val repo = VaultRepository(context, secrets)
         repo.unlock()
+        assertTrue("An empty index is committed before the first import", secrets.exists("catalog"))
         // file:// is confined to this test's private fixture; production import uses system content URIs.
         val source = File(context.cacheDir, "device-test-source.txt")
         val bytes = ByteArray(2_100_031) { (it % 251).toByte() }

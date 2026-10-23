@@ -25,6 +25,7 @@ class VaultRepository(private val context: Context, private val secrets: SecretS
     @Volatile private var generation = 0
     @Volatile var unlocked = false; private set
     private var catalog = Catalog()
+    var recoveryWarning: String? = null; private set
     private val readers = mutableSetOf<SecureReader>()
     fun lock() {
         val close: List<SecureReader>
@@ -35,9 +36,19 @@ class VaultRepository(private val context: Context, private val secrets: SecretS
         val bytes = secrets.read("catalog")
         val loaded = if (bytes == null) {
             check(root.listFiles().orEmpty().none { it.extension == "cv" }) { "Vault index is missing; encrypted files were preserved. Do not clear app storage." }
-            Catalog()
+            // Persist the empty index before any import can start. A crash during the first
+            // import must leave an empty committed catalog, not look like a lost index.
+            Catalog().also { save(it) }
         } else try { decode(JSONObject(String(bytes, Charsets.UTF_8))) } finally { bytes.fill(0) }
         catalog = loaded; unlocked = true; generation++
+        val ids = loaded.items.map { it.id }.toSet()
+        val orphaned = root.listFiles().orEmpty().count { it.extension == "cv" && it.nameWithoutExtension !in ids }
+        val missing = loaded.items.count { !File(root, "${it.id}.cv").isFile }
+        recoveryWarning = if (orphaned > 0 || missing > 0) {
+            "$orphaned unindexed encrypted files and $missing unavailable indexed files were found. " +
+                "An interrupted operation or damaged storage may be responsible. No indexed data was discarded. " +
+                "Unindexed files may lack recoverable keys. Keep your originals; do not clear app data while other vault copies are needed."
+        } else null
         // Only uncommitted encrypted scratch files are discarded. Orphan .cv files are preserved.
         root.listFiles()?.filter { it.extension == "partial" }?.forEach { it.delete() }
         loaded

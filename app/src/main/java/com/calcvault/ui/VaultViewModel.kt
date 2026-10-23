@@ -129,7 +129,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         val catalog = withContext(Dispatchers.IO) { vault.unlock() }
         if (ticket != epoch || state.value.concealed) { vault.lock(); return }
         session.unlock()
-        mutable.update { it.copy(unlocked = true, input = "", result = "0", catalog = catalog, preferences = auth.preferences) }
+        mutable.update { it.copy(unlocked = true, input = "", result = "0", catalog = catalog, preferences = auth.preferences, message = vault.recoveryWarning) }
     }
     fun biometricUnlocked() {
         val ticket = epoch

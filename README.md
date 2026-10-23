@@ -2,7 +2,23 @@
 
 A native, offline Android calculator with PIN-gated, encrypted private storage. Kotlin, Jetpack Compose / Material 3, MVVM, minimum Android 8.0 (API 26). Launcher name: **Calculator**.
 
-> **Verification status:** the pure Kotlin suite has passed 39 checks in the development sandbox. Android compilation, lint, APK generation and emulator tests are being attempted through the included GitHub Actions workflow because this sandbox cannot reach Google's SDK/Maven or Gradle distribution servers. See [TESTING.md](TESTING.md) for the exact final results. Do not treat source implementation alone as proof of production readiness.
+> **Verified 2026-10-23:** 39 standalone core checks, Gradle JVM tests, debug/release lint, all four API 35 instrumentation tests, and a minified-release install/launch smoke test passed. Both APKs were built; the owner release was signed locally and its v2/v3 signatures verified. See [TESTING.md](TESTING.md) for exact coverage and untested hardware/device scenarios. This is not an independent security certification.
+
+## Delivered files
+
+In the owner workspace `/home/user/Numi`:
+
+| Deliverable | Location |
+|---|---|
+| **Owner-signed release APK** (non-debuggable; recommended) | `artifacts/apk/calc-vault-release.apk` |
+| Debug APK (disposable testing only) | `artifacts/apk/calc-vault-debug.apk` |
+| Complete source archive (no keys, SDK, or build caches) | `artifacts/calc-vault-source.zip` |
+| APK checksums | `artifacts/apk/SHA256SUMS` |
+| CI results, APK inspection and signature records | `artifacts/reports/` |
+
+These generated outputs are intentionally not committed to Git. CI artifacts contain debug and **unsigned** release builds; owner signing happens offline. The protected owner key and password are outside this checkout at `/home/user/CalcVault-owner-signing/`. Back up that material securely and move the password to a password manager. It cannot recover an on-device vault key.
+
+Verified application-source revision: `c1aee48` on `arena/d236bb71-numi`. Subsequent documentation-only changes do not alter the APK source. [Successful Android verification run](https://github.com/Ans-to/Numi/actions/runs/39905579540).
 
 ## Open and build
 
@@ -18,7 +34,7 @@ sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
 # Or set sdk.dir=/absolute/path/to/android-sdk in untracked local.properties.
 ./gradlew :core:test :app:testDebugUnitTest :app:lintDebug :app:lintRelease
 ./gradlew :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest
-./gradlew :app:connectedDebugAndroidTest  # requires an emulator or attached device
+./gradlew :app:connectedDebugAndroidTest  # disposable emulator/test install ONLY; fixtures reset app data
 ./scripts/collect-apks.sh
 ```
 

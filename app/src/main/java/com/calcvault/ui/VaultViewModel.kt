@@ -31,6 +31,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     private var confirmation: CharArray? = null
     private var timeoutJob: Job? = null
     private var epoch = 0
+    private var backgrounded = false
     private var pending = emptyList<Uri>()
     private var importFolder: String? = null
     private var autoImport = false
@@ -154,6 +155,8 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun conceal() { mutable.update { it.copy(concealed = true) } }
     fun background() {
+        if (backgrounded) return
+        backgrounded = true
         val timeout = state.value.preferences.lockSeconds * 1000L
         session.background(SystemClock.elapsedRealtime(), timeout)
         if (timeout == 0L) lock()
@@ -163,6 +166,7 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     fun foreground() {
+        backgrounded = false
         timeoutJob?.cancel()
         session.foreground(SystemClock.elapsedRealtime(), state.value.preferences.lockSeconds * 1000L)
         if (state.value.unlocked && !session.unlocked) lock()
@@ -174,6 +178,9 @@ class VaultViewModel(application: Application) : AndroidViewModel(application) {
         if (!state.value.unlocked || state.value.busy) return false
         discardImports()
         importFolder = folder
+        // A translucent photo picker may pause us without ever calling onStop.
+        // Start the configured lock timer when handing control to any picker.
+        background()
         return true
     }
     fun receiveImports(uris: List<Uri>) {

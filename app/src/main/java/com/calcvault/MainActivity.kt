@@ -28,11 +28,11 @@ class MainActivity : FragmentActivity() {
                 onPickMedia = { folder ->
                     if (model.prepareImport(folder)) runCatching {
                         mediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
-                    }.onFailure { model.message("No system photo picker is available. Try Documents & other files instead.") }
+                    }.onFailure { model.foreground(); model.message("No system photo picker is available. Try Documents & other files instead.") }
                 },
                 onPickFiles = { folder ->
                     if (model.prepareImport(folder)) runCatching { filePicker.launch(arrayOf("*/*")) }
-                        .onFailure { model.message("No system file picker is available on this device.") }
+                        .onFailure { model.foreground(); model.message("No system file picker is available on this device.") }
                 })
         }
     }

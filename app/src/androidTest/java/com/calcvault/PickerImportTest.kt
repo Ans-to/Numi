@@ -9,6 +9,8 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.filters.SdkSuppress
+import androidx.test.uiautomator.Configurator
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
@@ -23,13 +25,18 @@ import org.junit.Rule
 import org.junit.Test
 
 /** Real Android picker transitions, not file:// repository calls or mocked activity results. */
+@SdkSuppress(minSdkVersion = 31)
 class PickerImportTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     private val device get() = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
     private val model get() = ViewModelProvider(compose.activity)[VaultViewModel::class.java]
-    private fun shell(command: String): String = ParcelFileDescriptor.AutoCloseInputStream(
-        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command)
-    ).bufferedReader().use { it.readText() }
+    private fun shell(command: String): String {
+        // UiAutomation does not interpret shell pipelines itself. Feed a real shell
+        // over its stdin pipe; otherwise fixture creation can silently do nothing.
+        val pipes = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommandRw("sh")
+        ParcelFileDescriptor.AutoCloseOutputStream(pipes[1]).bufferedWriter().use { it.write("set -e\n$command\n") }
+        return ParcelFileDescriptor.AutoCloseInputStream(pipes[0]).bufferedReader().use { it.readText() }
+    }
     private fun dismissLauncherAnr(): Boolean {
         // A cold CI emulator can show a launcher ANR over unrelated apps. Never
         // dismiss Calculator or picker failures: those must fail this regression.
@@ -38,6 +45,7 @@ class PickerImportTest {
         return true
     }
     @Before fun prepareSystemUi() {
+        Configurator.getInstance().waitForIdleTimeout = 1000
         device.registerWatcher("launcherAnr") { dismissLauncherAnr() }
         dismissLauncherAnr()
         shell("am force-stop com.google.android.apps.nexuslauncher")
@@ -68,7 +76,6 @@ class PickerImportTest {
         compose.onNodeWithText("AC").performClick()
         type("381729"); compose.onNodeWithText("=").performClick()
         compose.waitUntil(20000) { model.state.value.unlocked }
-        compose.runOnUiThread { model.message(null) }
     }
     private fun runPickerCase(photoPicker: Boolean) {
         unlock()
@@ -79,7 +86,11 @@ class PickerImportTest {
         bitmap.recycle()
         // Shell creates the source, not the app. Reading the returned document relies on
         // the system picker's content URI grant. This is synthetic data on a disposable emulator.
-        shell("mkdir -p /sdcard/Download; printf '%s' '${Base64.encodeToString(bytes, Base64.NO_WRAP)}' | base64 -d > '$path'; am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d 'file://$path'")
+        val inserted = shell("content insert --uri content://media/external_primary/downloads --bind _display_name:s:$name --bind mime_type:s:image/png --bind relative_path:s:Download/ --bind is_pending:i:1")
+        val fixtureUri = checkNotNull(Regex("content://\\S+").find(inserted)?.value) { "Fixture insertion failed: $inserted" }
+        shell("printf '%s' '${Base64.encodeToString(bytes, Base64.NO_WRAP)}' | base64 -d | content write --uri '$fixtureUri'; content update --uri '$fixtureUri' --bind is_pending:i:0")
+        check(shell("test -s '$path' && echo SOURCE_READY").contains("SOURCE_READY")) { "Synthetic source was not written" }
+
         try {
             dismissLauncherAnr()
             compose.onNodeWithText("Import files", useUnmergedTree = true).performClick()
@@ -140,9 +151,9 @@ class PickerImportTest {
                 .map { node -> Regex("(?:text|resource-id|package|content-desc|bounds)=\"[^\"]+\"").findAll(node).joinToString(" ") { it.value } }
                 .filter { it.contains("text=") || it.contains("content-desc=") || it.contains("resource-id=") }
                 .joinToString("\n").take(7000)
-            throw AssertionError("${e.message}\nSynthetic test picker UI: $nodes", e)
+            throw AssertionError("${e.message}\nImport state: ${model.state.value.message}\nSynthetic test picker UI: $nodes", e)
         } finally {
-            shell("rm -f '$path'; content delete --uri content://media/external/images/media --where \"_display_name='$name'\"")
+            shell("content delete --uri '$fixtureUri'; rm -f '$path'")
         }
     }
     @Test fun documentsPickerReturnsAfterLockAndRecreationAndImportsVerifiedPhoto() = runPickerCase(false)

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!-- Do not allow an optional media dependency to add network access transitively. -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+    <!-- Foreground-only playback uses window screen-on behavior, never Media3 wake mode. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" tools:node="remove" />
+    <application
+        android:name=".VaultApplication"
+        tools:targetApi="31"
+        android:allowBackup="false"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:usesCleartextTraffic="false"
+        android:label="Calculator"
+        android:icon="@drawable/ic_calculator"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.CalcVault">
+        <!-- One activity instance owns the in-memory catalog/session. Avoid concurrent stale-index writers. -->
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
